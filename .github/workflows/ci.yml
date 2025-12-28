@@ -50,7 +50,7 @@ jobs:
         run: make build-wasm
 
       - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wasm-pkg
           path: frontend/pkg/
@@ -112,7 +112,7 @@ jobs:
         run: make build-sass
 
       - name: Upload CSS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: css
           path: frontend/css/
