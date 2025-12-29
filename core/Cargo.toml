@@ -13,11 +13,14 @@ zcash_keys = { workspace = true, features = ["transparent-inputs", "sapling", "o
 zcash_note_encryption.workspace = true
 zcash_primitives.workspace = true
 zcash_protocol.workspace = true
-zcash_transparent.workspace = true
+zcash_transparent = { workspace = true, features = ["transparent-inputs"] }
 zip32.workspace = true
 
 # BIP39 mnemonic
 bip39.workspace = true
+
+# Crypto
+secp256k1.workspace = true
 
 # Serialization
 hex.workspace = true

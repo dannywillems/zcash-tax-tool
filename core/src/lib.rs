@@ -1,4 +1,5 @@
 pub mod scanner;
+pub mod transaction;
 pub mod types;
 pub mod wallet;
 
@@ -12,6 +13,10 @@ pub use types::{
     ScannedNote, ScannedTransparentOutput, SpentNullifier, StorageResult, StoredNote, StoredWallet,
     TransparentInput, TransparentOutput, TransparentSpend, ViewingKeyInfo, WalletCollection,
     WalletResult,
+};
+pub use transaction::{
+    Recipient, SignedTransaction, TransactionError, Utxo, build_transparent_transaction,
+    find_address_index,
 };
 pub use wallet::{
     WalletInfo, derive_transparent_addresses, derive_unified_addresses, derive_wallet,
