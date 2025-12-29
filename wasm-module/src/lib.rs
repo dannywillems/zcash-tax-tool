@@ -1429,6 +1429,316 @@ pub fn get_all_wallets(wallets_json: &str) -> String {
     .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
 }
 
+// ============================================================================
+// Input Validation Functions
+// ============================================================================
+
+/// Result type for validation operations
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ValidationResult {
+    valid: bool,
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    word_count: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count: Option<u32>,
+}
+
+impl ValidationResult {
+    fn ok() -> Self {
+        ValidationResult {
+            valid: true,
+            error: None,
+            address_type: None,
+            word_count: None,
+            count: None,
+        }
+    }
+
+    fn err(message: impl Into<String>) -> Self {
+        ValidationResult {
+            valid: false,
+            error: Some(message.into()),
+            address_type: None,
+            word_count: None,
+            count: None,
+        }
+    }
+}
+
+/// Validate a transaction ID (txid).
+///
+/// A valid txid is a 64-character hexadecimal string.
+///
+/// # Arguments
+///
+/// * `txid` - The transaction ID to validate
+///
+/// # Returns
+///
+/// JSON with `{valid: bool, error?: string}`
+#[wasm_bindgen]
+pub fn validate_txid(txid: &str) -> String {
+    let txid = txid.trim();
+
+    if txid.is_empty() {
+        return serde_json::to_string(&ValidationResult::err("Transaction ID is required"))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    if txid.len() != 64 {
+        return serde_json::to_string(&ValidationResult::err(format!(
+            "Transaction ID must be 64 characters, got {}",
+            txid.len()
+        )))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    // Check if all characters are valid hex
+    if !txid.chars().all(|c| c.is_ascii_hexdigit()) {
+        return serde_json::to_string(&ValidationResult::err(
+            "Transaction ID must contain only hexadecimal characters (0-9, a-f, A-F)",
+        ))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    serde_json::to_string(&ValidationResult::ok())
+        .unwrap_or_else(|_| r#"{"valid":true}"#.to_string())
+}
+
+/// Validate a Zcash address.
+///
+/// Supports transparent (t-addr), Sapling (zs), and unified addresses (u).
+///
+/// # Arguments
+///
+/// * `address` - The address to validate
+/// * `network` - The network ("mainnet" or "testnet")
+///
+/// # Returns
+///
+/// JSON with `{valid: bool, address_type?: string, error?: string}`
+#[wasm_bindgen]
+pub fn validate_address(address: &str, network: &str) -> String {
+    let address = address.trim();
+
+    if address.is_empty() {
+        return serde_json::to_string(&ValidationResult::err("Address is required"))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    let is_mainnet = matches!(network.to_lowercase().as_str(), "mainnet" | "main");
+
+    // Check for unified address
+    if address.starts_with("u1") || address.starts_with("utest1") {
+        let expected_prefix = if is_mainnet { "u1" } else { "utest1" };
+        if (is_mainnet && !address.starts_with("u1"))
+            || (!is_mainnet && !address.starts_with("utest1"))
+        {
+            return serde_json::to_string(&ValidationResult::err(format!(
+                "Unified address should start with '{}' for {}",
+                expected_prefix,
+                if is_mainnet { "mainnet" } else { "testnet" }
+            )))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+        }
+
+        // Try to decode the unified address
+        if zcash_address::unified::Address::decode(address).is_ok() {
+            let mut result = ValidationResult::ok();
+            result.address_type = Some("unified".to_string());
+            return serde_json::to_string(&result)
+                .unwrap_or_else(|_| r#"{"valid":true,"address_type":"unified"}"#.to_string());
+        }
+        return serde_json::to_string(&ValidationResult::err(
+            "Invalid unified address encoding",
+        ))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    // Check for Sapling address
+    if address.starts_with("zs") || address.starts_with("ztestsapling") {
+        let expected_prefix = if is_mainnet { "zs" } else { "ztestsapling" };
+        if (is_mainnet && !address.starts_with("zs"))
+            || (!is_mainnet && !address.starts_with("ztestsapling"))
+        {
+            return serde_json::to_string(&ValidationResult::err(format!(
+                "Sapling address should start with '{}' for {}",
+                expected_prefix,
+                if is_mainnet { "mainnet" } else { "testnet" }
+            )))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+        }
+
+        // Basic bech32 validation
+        if bech32::decode(address).is_ok() {
+            let mut result = ValidationResult::ok();
+            result.address_type = Some("sapling".to_string());
+            return serde_json::to_string(&result)
+                .unwrap_or_else(|_| r#"{"valid":true,"address_type":"sapling"}"#.to_string());
+        } else {
+            return serde_json::to_string(&ValidationResult::err(
+                "Invalid Sapling address encoding",
+            ))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+        }
+    }
+
+    // Check for transparent address
+    if address.starts_with('t') {
+        let expected_prefix = if is_mainnet { "t1" } else { "tm" };
+        if (is_mainnet && !address.starts_with("t1"))
+            || (!is_mainnet && !address.starts_with("tm"))
+        {
+            return serde_json::to_string(&ValidationResult::err(format!(
+                "Transparent address should start with '{}' for {}",
+                expected_prefix,
+                if is_mainnet { "mainnet" } else { "testnet" }
+            )))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+        }
+
+        // Basic base58check validation (length check)
+        if address.len() >= 26 && address.len() <= 35 {
+            let mut result = ValidationResult::ok();
+            result.address_type = Some("transparent".to_string());
+            return serde_json::to_string(&result)
+                .unwrap_or_else(|_| r#"{"valid":true,"address_type":"transparent"}"#.to_string());
+        } else {
+            return serde_json::to_string(&ValidationResult::err(
+                "Invalid transparent address length",
+            ))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+        }
+    }
+
+    serde_json::to_string(&ValidationResult::err(
+        "Unrecognized address format. Expected unified (u1/utest1), Sapling (zs/ztestsapling), or transparent (t1/tm) address",
+    ))
+    .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Validate a BIP39 seed phrase.
+///
+/// Checks word count and basic format. Valid phrases have 12, 15, 18, 21, or 24 words.
+///
+/// # Arguments
+///
+/// * `seed_phrase` - The seed phrase to validate
+///
+/// # Returns
+///
+/// JSON with `{valid: bool, word_count?: u8, error?: string}`
+#[wasm_bindgen]
+pub fn validate_seed_phrase(seed_phrase: &str) -> String {
+    let seed_phrase = seed_phrase.trim();
+
+    if seed_phrase.is_empty() {
+        return serde_json::to_string(&ValidationResult::err("Seed phrase is required"))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    let words: Vec<&str> = seed_phrase.split_whitespace().collect();
+    let word_count = words.len();
+
+    // Valid BIP39 word counts
+    let valid_counts = [12, 15, 18, 21, 24];
+    if !valid_counts.contains(&word_count) {
+        return serde_json::to_string(&ValidationResult::err(format!(
+            "Seed phrase must have 12, 15, 18, 21, or 24 words, got {}",
+            word_count
+        )))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    // Check that all words are lowercase alphabetic
+    for word in &words {
+        if !word.chars().all(|c| c.is_ascii_lowercase()) {
+            return serde_json::to_string(&ValidationResult::err(
+                "Seed phrase words must contain only lowercase letters",
+            ))
+            .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+        }
+    }
+
+    // Basic validation passed (format and word count)
+    // Note: Full BIP39 wordlist validation happens during wallet creation
+    // to minimize dependencies in the WASM module
+    let mut result = ValidationResult::ok();
+    result.word_count = Some(word_count as u8);
+    serde_json::to_string(&result)
+        .unwrap_or_else(|_| format!(r#"{{"valid":true,"word_count":{}}}"#, word_count))
+}
+
+/// Validate an address derivation range.
+///
+/// Checks that from <= to and the count doesn't exceed the maximum.
+///
+/// # Arguments
+///
+/// * `from_index` - Starting index
+/// * `to_index` - Ending index (inclusive)
+/// * `max_count` - Maximum allowed count
+///
+/// # Returns
+///
+/// JSON with `{valid: bool, count?: u32, error?: string}`
+#[wasm_bindgen]
+pub fn validate_address_range(from_index: u32, to_index: u32, max_count: u32) -> String {
+    if from_index > to_index {
+        return serde_json::to_string(&ValidationResult::err(
+            "From index must be less than or equal to To index",
+        ))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    let count = to_index - from_index + 1;
+
+    if count > max_count {
+        return serde_json::to_string(&ValidationResult::err(format!(
+            "Range too large: {} addresses requested, maximum is {}",
+            count, max_count
+        )))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    let mut result = ValidationResult::ok();
+    result.count = Some(count);
+    serde_json::to_string(&result)
+        .unwrap_or_else(|_| format!(r#"{{"valid":true,"count":{}}}"#, count))
+}
+
+/// Validate an account index.
+///
+/// Account indices must be less than 2^31 (hardened derivation limit).
+///
+/// # Arguments
+///
+/// * `index` - The account index to validate
+///
+/// # Returns
+///
+/// JSON with `{valid: bool, error?: string}`
+#[wasm_bindgen]
+pub fn validate_account_index(index: u32) -> String {
+    // BIP32 hardened derivation uses indices >= 2^31
+    // Account indices should be < 2^31
+    const MAX_ACCOUNT_INDEX: u32 = 0x7FFFFFFF;
+
+    if index > MAX_ACCOUNT_INDEX {
+        return serde_json::to_string(&ValidationResult::err(format!(
+            "Account index must be less than {}, got {}",
+            MAX_ACCOUNT_INDEX, index
+        )))
+        .unwrap_or_else(|_| r#"{"valid":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    serde_json::to_string(&ValidationResult::ok())
+        .unwrap_or_else(|_| r#"{"valid":true}"#.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

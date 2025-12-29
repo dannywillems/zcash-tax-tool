@@ -332,11 +332,10 @@ async function decryptTransaction() {
     return;
   }
 
-  // Validate txid format (64 hex characters)
-  if (!/^[a-fA-F0-9]{64}$/.test(txid)) {
-    showError(
-      "Invalid transaction ID format. Expected 64 hexadecimal characters."
-    );
+  // Validate txid format using WASM
+  const validationResult = JSON.parse(wasmModule.validate_txid(txid));
+  if (!validationResult.valid) {
+    showError(validationResult.error || "Invalid transaction ID format.");
     return;
   }
 
@@ -622,7 +621,7 @@ function toggleTheme() {
 }
 
 // ===========================================================================
-// Note Storage (localStorage)
+// Note Storage (localStorage) - Uses WASM bindings for type-safe operations
 // ===========================================================================
 
 function loadNotes() {
@@ -642,70 +641,102 @@ function saveNotes(notes) {
 }
 
 function addNote(note, txid) {
-  const notes = loadNotes();
-  // Create a unique ID for the note
-  const noteId = `${txid}-${note.pool}-${note.output_index}`;
-
-  // Check if note already exists
-  const existingIndex = notes.findIndex((n) => n.id === noteId);
-  if (existingIndex >= 0) {
-    // Update existing note
-    notes[existingIndex] = { ...note, id: noteId, txid, spentTxid: null };
-  } else {
-    // Add new note
-    notes.push({ ...note, id: noteId, txid, spentTxid: null });
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return false;
   }
 
-  saveNotes(notes);
-  return existingIndex < 0; // Return true if newly added
+  const notes = loadNotes();
+  const notesJson = JSON.stringify(notes);
+
+  // Create stored note using WASM binding
+  const storedNoteJson = wasmModule.create_stored_note(
+    txid,
+    note.pool || "unknown",
+    note.output_index || 0,
+    note.value || 0,
+    note.nullifier || null,
+    note.commitment || null,
+    note.memo || null,
+    note.address || null
+  );
+
+  // Add note to list (handles duplicates)
+  const resultJson = wasmModule.add_note_to_list(notesJson, storedNoteJson);
+  const result = JSON.parse(resultJson);
+
+  if (result.success) {
+    saveNotes(result.notes);
+    return result.is_new;
+  }
+  console.error("Failed to add note:", result.error);
+  return false;
 }
 
 function markNotesSpent(nullifiers, spendingTxid) {
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return 0;
+  }
+
   const notes = loadNotes();
-  let markedCount = 0;
+  const notesJson = JSON.stringify(notes);
+  const nullifiersJson = JSON.stringify(nullifiers);
 
-  for (const nf of nullifiers) {
-    for (const note of notes) {
-      if (note.nullifier === nf.nullifier && !note.spentTxid) {
-        note.spentTxid = spendingTxid;
-        markedCount++;
-      }
-    }
-  }
+  const resultJson = wasmModule.mark_notes_spent(
+    notesJson,
+    nullifiersJson,
+    spendingTxid
+  );
+  const result = JSON.parse(resultJson);
 
-  if (markedCount > 0) {
-    saveNotes(notes);
+  if (result.success) {
+    saveNotes(result.notes);
+    return result.marked_count;
   }
-  return markedCount;
+  console.error("Failed to mark notes spent:", result.error);
+  return 0;
 }
 
 function markTransparentSpent(transparentSpends, spendingTxid) {
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return 0;
+  }
+
   const notes = loadNotes();
-  let markedCount = 0;
+  const notesJson = JSON.stringify(notes);
+  const spendsJson = JSON.stringify(transparentSpends);
 
-  for (const spend of transparentSpends) {
-    for (const note of notes) {
-      // Match transparent notes by txid and output_index
-      if (
-        note.pool === "transparent" &&
-        note.txid === spend.prevout_txid &&
-        note.output_index === spend.prevout_index &&
-        !note.spentTxid
-      ) {
-        note.spentTxid = spendingTxid;
-        markedCount++;
-      }
-    }
-  }
+  const resultJson = wasmModule.mark_transparent_spent(
+    notesJson,
+    spendsJson,
+    spendingTxid
+  );
+  const result = JSON.parse(resultJson);
 
-  if (markedCount > 0) {
-    saveNotes(notes);
+  if (result.success) {
+    saveNotes(result.notes);
+    return result.marked_count;
   }
-  return markedCount;
+  console.error("Failed to mark transparent spent:", result.error);
+  return 0;
 }
 
 function getUnspentNotes() {
-  return loadNotes().filter((n) => !n.spentTxid && n.value > 0);
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return [];
+  }
+
+  const notes = loadNotes();
+  const notesJson = JSON.stringify(notes);
+  const resultJson = wasmModule.get_unspent_notes(notesJson);
+  try {
+    return JSON.parse(resultJson);
+  } catch {
+    return [];
+  }
 }
 
 function getAllNotes() {
@@ -713,21 +744,37 @@ function getAllNotes() {
 }
 
 function getBalance() {
-  return getUnspentNotes().reduce((sum, n) => sum + n.value, 0);
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return 0;
+  }
+
+  const notes = loadNotes();
+  const notesJson = JSON.stringify(notes);
+  const resultJson = wasmModule.calculate_balance(notesJson);
+  try {
+    const result = JSON.parse(resultJson);
+    return result.total || 0;
+  } catch {
+    return 0;
+  }
 }
 
 function getBalanceByPool() {
-  const notes = getUnspentNotes();
-  const balances = {};
-
-  for (const note of notes) {
-    if (!balances[note.pool]) {
-      balances[note.pool] = 0;
-    }
-    balances[note.pool] += note.value;
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return {};
   }
 
-  return balances;
+  const notes = loadNotes();
+  const notesJson = JSON.stringify(notes);
+  const resultJson = wasmModule.calculate_balance(notesJson);
+  try {
+    const result = JSON.parse(resultJson);
+    return result.by_pool || {};
+  } catch {
+    return {};
+  }
 }
 
 function clearNotes() {
@@ -735,7 +782,7 @@ function clearNotes() {
 }
 
 // ===========================================================================
-// Wallet Storage (localStorage)
+// Wallet Storage (localStorage) - Uses WASM bindings for type-safe operations
 // ===========================================================================
 
 function loadWallets() {
@@ -760,40 +807,79 @@ function addWallet(
   transparentAddresses = [],
   unifiedAddresses = []
 ) {
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return null;
+  }
+
   const wallets = loadWallets();
+  const walletsJson = JSON.stringify(wallets);
 
-  // Generate unique ID
-  const id = `wallet_${Date.now()}`;
+  // Create stored wallet using WASM binding
+  const storedWalletJson = wasmModule.create_stored_wallet(
+    alias || `Wallet ${wallets.length + 1}`,
+    wallet.network || "testnet",
+    wallet.seed_phrase || null,
+    wallet.account_index || 0,
+    wallet.unified_address || null,
+    wallet.transparent_address || null,
+    wallet.unified_full_viewing_key || null,
+    JSON.stringify(transparentAddresses),
+    JSON.stringify(unifiedAddresses)
+  );
 
-  const walletEntry = {
-    id,
-    alias: alias || `Wallet ${wallets.length + 1}`,
-    network: wallet.network,
-    seed_phrase: wallet.seed_phrase,
-    account_index: wallet.account_index,
-    unified_address: wallet.unified_address,
-    transparent_address: wallet.transparent_address,
-    unified_full_viewing_key: wallet.unified_full_viewing_key,
-    transparent_addresses: transparentAddresses, // Array of derived transparent addresses
-    unified_addresses: unifiedAddresses, // Array of derived unified addresses
-    created_at: new Date().toISOString(),
-  };
+  // Add wallet to list
+  const resultJson = wasmModule.add_wallet_to_list(
+    walletsJson,
+    storedWalletJson
+  );
+  const result = JSON.parse(resultJson);
 
-  wallets.push(walletEntry);
-  saveWallets(wallets);
-
-  return walletEntry;
+  if (result.success) {
+    saveWallets(result.wallets);
+    // Return the newly added wallet (last in the list)
+    const newWallets = result.wallets;
+    return newWallets[newWallets.length - 1];
+  }
+  console.error("Failed to add wallet:", result.error);
+  return null;
 }
 
 function getWallet(id) {
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return null;
+  }
+
   const wallets = loadWallets();
-  return wallets.find((w) => w.id === id);
+  const walletsJson = JSON.stringify(wallets);
+  const resultJson = wasmModule.get_wallet_by_id(walletsJson, id);
+  try {
+    const result = JSON.parse(resultJson);
+    return result || null;
+  } catch {
+    return null;
+  }
 }
 
 function deleteWallet(id) {
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return;
+  }
+
   const wallets = loadWallets();
-  const filtered = wallets.filter((w) => w.id !== id);
-  saveWallets(filtered);
+  const walletsJson = JSON.stringify(wallets);
+  const resultJson = wasmModule.delete_wallet_from_list(walletsJson, id);
+
+  try {
+    const result = JSON.parse(resultJson);
+    if (result.success) {
+      saveWallets(result.wallets);
+    }
+  } catch {
+    console.error("Failed to delete wallet");
+  }
 
   // Clear selection if deleted wallet was selected
   if (getSelectedWalletId() === id) {
@@ -816,9 +902,15 @@ function getSelectedWallet() {
 
 function walletAliasExists(alias) {
   if (!alias) return false;
+
+  if (!wasmModule) {
+    console.error("WASM module not loaded");
+    return false;
+  }
+
   const wallets = loadWallets();
-  const normalizedAlias = alias.toLowerCase().trim();
-  return wallets.some((w) => w.alias.toLowerCase().trim() === normalizedAlias);
+  const walletsJson = JSON.stringify(wallets);
+  return wasmModule.wallet_alias_exists(walletsJson, alias);
 }
 
 // ===========================================================================
@@ -950,11 +1042,10 @@ async function scanTransaction() {
     return;
   }
 
-  // Validate txid format
-  if (!/^[a-fA-F0-9]{64}$/.test(txid)) {
-    showScanError(
-      "Invalid transaction ID format. Expected 64 hexadecimal characters."
-    );
+  // Validate txid format using WASM
+  const validationResult = JSON.parse(wasmModule.validate_txid(txid));
+  if (!validationResult.valid) {
+    showScanError(validationResult.error || "Invalid transaction ID format.");
     return;
   }
 
