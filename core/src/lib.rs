@@ -15,8 +15,8 @@ pub use types::{
     WalletResult,
 };
 pub use transaction::{
-    Recipient, SignedTransaction, TransactionError, Utxo, build_transparent_transaction,
-    find_address_index,
+    Recipient, SignedTransaction, TransactionError, UnsignedTransaction, Utxo,
+    build_transparent_transaction, build_unsigned_transaction, find_address_index,
 };
 pub use wallet::{
     WalletInfo, derive_transparent_addresses, derive_unified_addresses, derive_wallet,

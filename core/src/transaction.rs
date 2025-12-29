@@ -12,7 +12,7 @@ use zcash_primitives::transaction::TxId;
 use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
 use zcash_transparent::address::TransparentAddress;
-use zcash_transparent::builder::TransparentBuilder;
+use zcash_transparent::builder::{TransparentBuilder, TransparentSigningSet};
 use zcash_transparent::bundle::{OutPoint, TxOut};
 use zcash_transparent::keys::{AccountPrivKey, IncomingViewingKey, NonHardenedChildIndex};
 use zip32::AccountId;
@@ -141,6 +141,23 @@ pub struct SignedTransaction {
     pub fee: u64,
 }
 
+/// Unsigned transaction bundle ready for signing.
+/// This is an intermediate representation used for staged signing.
+pub struct UnsignedTransaction {
+    /// The unsigned transparent bundle.
+    pub bundle: zcash_transparent::bundle::Bundle<zcash_transparent::builder::Unauthorized>,
+    /// Signing keys collected during building.
+    pub signing_set: TransparentSigningSet,
+    /// Total input value in zatoshis.
+    pub total_input: u64,
+    /// Total output value in zatoshis (excluding fee).
+    pub total_output: u64,
+    /// Fee in zatoshis.
+    pub fee: u64,
+    /// The network this transaction is for.
+    pub network: Network,
+}
+
 /// Find the address index for a given transparent address.
 ///
 /// This function iterates through address indices (0 to max_index) to find
@@ -235,7 +252,10 @@ fn parse_txid(txid_hex: &str) -> Result<TxId, TransactionError> {
     Ok(TxId::from_bytes(txid_bytes))
 }
 
-/// Build and sign a transparent transaction.
+/// Build an unsigned transparent transaction.
+///
+/// This creates the transaction structure and collects signing keys,
+/// but does not compute sighashes or apply signatures.
 ///
 /// # Arguments
 ///
@@ -248,15 +268,15 @@ fn parse_txid(txid_hex: &str) -> Result<TxId, TransactionError> {
 ///
 /// # Returns
 ///
-/// A `SignedTransaction` containing the signed transaction hex.
-pub fn build_transparent_transaction(
+/// An `UnsignedTransaction` containing the bundle and signing keys.
+pub fn build_unsigned_transaction(
     seed_phrase: &str,
     network: Network,
     account: u32,
     utxos: Vec<Utxo>,
     recipients: Vec<Recipient>,
     fee: u64,
-) -> Result<SignedTransaction, TransactionError> {
+) -> Result<UnsignedTransaction, TransactionError> {
     // Validate inputs
     if utxos.is_empty() {
         return Err(TransactionError::InvalidInput(
@@ -284,8 +304,9 @@ pub fn build_transparent_transaction(
     // Derive the account private key
     let account_privkey = derive_transparent_account_key(seed_phrase, network, account)?;
 
-    // Build the transparent bundle
+    // Build the transparent bundle and collect signing keys
     let mut builder = TransparentBuilder::empty();
+    let mut signing_set = TransparentSigningSet::new();
 
     // Add inputs
     for utxo in &utxos {
@@ -304,6 +325,9 @@ pub fn build_transparent_transaction(
 
         let secp = secp256k1::Secp256k1::new();
         let pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+
+        // Add the secret key to the signing set
+        signing_set.add_key(secret_key);
 
         // Parse the outpoint
         let txid = parse_txid(&utxo.txid)?;
@@ -349,29 +373,74 @@ pub fn build_transparent_transaction(
     }
 
     // Build the unsigned bundle
-    let _bundle = builder
+    let unsigned_bundle = builder
         .build()
         .ok_or_else(|| TransactionError::BuildFailed("Failed to build bundle".to_string()))?;
 
-    // TODO: Complete the signing process
-    // This requires building a full transaction with the transparent bundle
-    // and computing the sighash for each input.
+    Ok(UnsignedTransaction {
+        bundle: unsigned_bundle,
+        signing_set,
+        total_input,
+        total_output,
+        fee,
+        network,
+    })
+}
+
+/// Build and sign a transparent transaction.
+///
+/// Note: This function is currently limited. Full transparent transaction signing
+/// requires computing sighashes according to ZIP 244, which requires the full
+/// transaction context. This will be implemented in a future version.
+///
+/// # Arguments
+///
+/// * `seed_phrase` - The wallet's seed phrase
+/// * `network` - The network (mainnet or testnet)
+/// * `account` - The account index
+/// * `utxos` - The UTXOs to spend
+/// * `recipients` - The recipients and amounts
+/// * `fee` - The transaction fee in zatoshis
+///
+/// # Returns
+///
+/// A `SignedTransaction` containing the signed transaction hex.
+pub fn build_transparent_transaction(
+    seed_phrase: &str,
+    network: Network,
+    account: u32,
+    utxos: Vec<Utxo>,
+    recipients: Vec<Recipient>,
+    fee: u64,
+) -> Result<SignedTransaction, TransactionError> {
+    // Build the unsigned transaction
+    let unsigned = build_unsigned_transaction(seed_phrase, network, account, utxos, recipients, fee)?;
+
+    // Note: Full signing requires integrating with zcash_primitives transaction builder
+    // or implementing the ZIP 244 sighash computation manually.
     //
-    // The current implementation is blocked because:
-    // 1. We need to create a full TransactionData structure
-    // 2. Compute the sighash using the transaction authorizing context
-    // 3. Apply signatures to the bundle
+    // The transparent bundle's apply_signatures() method requires a sighash calculator
+    // that needs the full transaction context (version, lock_time, expiry_height, etc.)
+    // which is not available when building just the transparent component.
     //
-    // This will be completed in a follow-up when we integrate with
-    // zcash_primitives::transaction::builder::Builder
+    // Options for completing this implementation:
+    // 1. Use zcash_primitives::transaction::builder::Builder with mock provers
+    // 2. Implement ZIP 244 sighash computation for transparent-only v5 transactions
+    // 3. Wait for upstream support for transparent-only transaction building
+    //
+    // For now, return an informative error.
 
     Err(TransactionError::BuildFailed(
-        "Transaction signing is not yet fully implemented. \
-         The key derivation, input/output building works, but \
-         the signature hash computation requires integration with \
-         the full zcash_primitives transaction builder. \
-         See issue #70 for progress."
-            .to_string(),
+        format!(
+            "Transaction building succeeded (inputs: {} zatoshis, outputs: {} zatoshis, fee: {} zatoshis), \
+             but signing is not yet fully implemented. \
+             The transparent bundle has been constructed with {} inputs and outputs are ready. \
+             Full signing requires ZIP 244 sighash computation which is tracked in issue #70.",
+            unsigned.total_input,
+            unsigned.total_output,
+            unsigned.fee,
+            unsigned.bundle.vin.len()
+        )
     ))
 }
 
@@ -441,6 +510,46 @@ mod tests {
             }
             _ => panic!("Expected InsufficientFunds error"),
         }
+    }
+
+    #[test]
+    fn test_build_unsigned_with_valid_utxo() {
+        // Derive an address first
+        let addresses =
+            crate::wallet::derive_transparent_addresses(TEST_SEED_PHRASE, Network::TestNetwork, 0, 0, 1)
+                .unwrap();
+
+        let utxos = vec![Utxo {
+            txid: "0000000000000000000000000000000000000000000000000000000000000001".to_string(),
+            vout: 0,
+            value: 100000,
+            address: addresses[0].clone(),
+            script_pubkey: None,
+        }];
+
+        // Use a valid testnet address as recipient
+        let recipients = vec![Recipient {
+            address: addresses[0].clone(), // Send to self for testing
+            amount: 50000,
+        }];
+
+        let result = build_unsigned_transaction(
+            TEST_SEED_PHRASE,
+            Network::TestNetwork,
+            0,
+            utxos,
+            recipients,
+            10000,
+        );
+
+        assert!(result.is_ok());
+        let unsigned = result.unwrap();
+        assert_eq!(unsigned.total_input, 100000);
+        assert_eq!(unsigned.total_output, 50000);
+        assert_eq!(unsigned.fee, 10000);
+        assert_eq!(unsigned.bundle.vin.len(), 1);
+        // 1 recipient + 1 change output
+        assert_eq!(unsigned.bundle.vout.len(), 2);
     }
 
     #[test]
