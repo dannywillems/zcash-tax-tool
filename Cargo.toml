@@ -9,24 +9,24 @@ license = "MIT"
 
 [workspace.dependencies]
 # Zcash crates
-zcash_primitives = { version = "0.26.4", default-features = false }
-zcash_protocol = "0.7"
+orchard = { version = "0.11", default-features = false }
+sapling-crypto = { version = "0.6", default-features = false }
 zcash_address = "0.10"
 zcash_keys = { version = "0.12", default-features = false }
 zcash_note_encryption = "0.4.1"
-zip32 = "0.2"
+zcash_primitives = { version = "0.26.4", default-features = false }
+zcash_protocol = "0.7"
 zcash_transparent = "0.6"
-sapling-crypto = { version = "0.6", default-features = false }
-orchard = { version = "0.11", default-features = false }
+zip32 = "0.2"
 
 # Serialization
+hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-hex = "0.4"
 
 # Error handling
-thiserror = "2.0"
 anyhow = "1.0"
+thiserror = "2.0"
 
 # Crypto
 bech32 = "0.11"
