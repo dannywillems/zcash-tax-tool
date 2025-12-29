@@ -8,8 +8,9 @@ pub use scanner::{
 };
 pub use types::{
     DecryptedOrchardAction, DecryptedSaplingOutput, DecryptedTransaction, DecryptionResult,
-    NetworkKind, Pool, ScanResult, ScanTransactionResult, ScannedNote, ScannedTransparentOutput,
-    SpentNullifier, TransparentInput, TransparentOutput, TransparentSpend, ViewingKeyInfo,
+    DerivedAddress, NetworkKind, NoteCollection, Pool, ScanResult, ScanTransactionResult,
+    ScannedNote, ScannedTransparentOutput, SpentNullifier, StorageResult, StoredNote, StoredWallet,
+    TransparentInput, TransparentOutput, TransparentSpend, ViewingKeyInfo, WalletCollection,
     WalletResult,
 };
 pub use wallet::{
