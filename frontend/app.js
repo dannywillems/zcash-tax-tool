@@ -873,12 +873,13 @@ function updateBalanceDisplay() {
   const poolBalances = getBalanceByPool();
 
   let html = `
-    <div class="card">
+    <div class="card shadow-sm">
+      <div class="card-header">
+        <h5 class="mb-0 fw-semibold"><i class="bi bi-cash-coin me-1"></i> Total Balance</h5>
+      </div>
       <div class="card-body">
-        <h5 class="card-title">Total Balance</h5>
-        <p class="display-6">${formatZatoshi(balance)} ZEC</p>
-        <hr>
-        <h6>By Pool</h6>
+        <p class="display-5 mb-3 text-success fw-bold">${formatZatoshi(balance)} ZEC</p>
+        <h6 class="text-muted">By Pool</h6>
   `;
 
   if (Object.keys(poolBalances).length === 0) {
@@ -886,7 +887,8 @@ function updateBalanceDisplay() {
   } else {
     for (const [pool, amount] of Object.entries(poolBalances)) {
       const poolLabel = pool.charAt(0).toUpperCase() + pool.slice(1);
-      html += `<p class="mb-1">${poolLabel}: <strong>${formatZatoshi(amount)} ZEC</strong></p>`;
+      const poolClass = pool === "orchard" ? "text-info" : "text-primary";
+      html += `<p class="mb-1"><span class="${poolClass}">${poolLabel}</span>: <strong>${formatZatoshi(amount)} ZEC</strong></p>`;
     }
   }
 
