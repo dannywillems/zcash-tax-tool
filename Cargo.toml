@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "wasm-module", "cli"]
+members = ["core", "wasm-module", "cli", "html-builder"]
 
 [workspace.package]
 version = "0.1.0"
