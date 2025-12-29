@@ -205,6 +205,143 @@ pub struct DecryptionResult {
     pub error: Option<String>,
 }
 
+// ============================================================================
+// Scanner Types
+// ============================================================================
+
+/// Shielded pool identifier.
+///
+/// Zcash has two shielded pools: Sapling (older) and Orchard (newer).
+/// This enum provides type-safe pool identification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Pool {
+    /// Sapling shielded pool (introduced in Sapling upgrade).
+    Sapling,
+    /// Orchard shielded pool (introduced in NU5).
+    Orchard,
+}
+
+impl Pool {
+    /// Get the string representation of the pool.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Pool::Sapling => "sapling",
+            Pool::Orchard => "orchard",
+        }
+    }
+}
+
+impl std::fmt::Display for Pool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl Serialize for Pool {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Pool {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "sapling" => Ok(Pool::Sapling),
+            "orchard" => Ok(Pool::Orchard),
+            _ => Err(serde::de::Error::custom(format!("unknown pool: {}", s))),
+        }
+    }
+}
+
+/// A note found during transaction scanning.
+///
+/// Represents a shielded note (Sapling or Orchard) discovered by trial decryption
+/// using a viewing key. Contains all relevant data for balance tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScannedNote {
+    /// Zero-based index of this output within the transaction's shielded bundle.
+    pub output_index: usize,
+    /// The shielded pool this note belongs to.
+    pub pool: Pool,
+    /// Note value in zatoshis. Zero if decryption failed.
+    pub value: u64,
+    /// Note commitment as a hex string (cmu for Sapling, cmx for Orchard).
+    pub commitment: String,
+    /// Nullifier for this note, used to detect when it's spent.
+    pub nullifier: Option<String>,
+    /// Memo field contents if decrypted and valid UTF-8.
+    pub memo: Option<String>,
+    /// Recipient address if available from decryption.
+    pub address: Option<String>,
+}
+
+/// A nullifier found in a transaction, indicating a spent note.
+///
+/// When scanning transactions, nullifiers reveal which notes have been spent.
+/// By tracking nullifiers, we can compute the wallet's unspent balance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpentNullifier {
+    /// The shielded pool this nullifier belongs to.
+    pub pool: Pool,
+    /// The nullifier as a hex string.
+    pub nullifier: String,
+}
+
+/// A transparent output found during scanning.
+///
+/// Simpler than `TransparentOutput` - only contains data needed for balance tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScannedTransparentOutput {
+    /// Zero-based index of this output within the transaction.
+    pub index: usize,
+    /// Output value in zatoshis.
+    pub value: u64,
+    /// Decoded transparent address, if available.
+    pub address: Option<String>,
+}
+
+/// Result of scanning a transaction for notes and nullifiers.
+///
+/// Contains all notes belonging to the wallet found in the transaction,
+/// as well as nullifiers that indicate previously-received notes being spent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanResult {
+    /// Transaction ID as a hex string.
+    pub txid: String,
+    /// Notes found belonging to the viewing key.
+    pub notes: Vec<ScannedNote>,
+    /// Nullifiers found (indicating spent notes).
+    pub spent_nullifiers: Vec<SpentNullifier>,
+    /// Total transparent value received.
+    pub transparent_received: u64,
+    /// Transparent outputs in the transaction.
+    pub transparent_outputs: Vec<ScannedTransparentOutput>,
+}
+
+/// Result of a transaction scan operation.
+///
+/// Wraps the scan result with success/error status for JavaScript interop.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanTransactionResult {
+    /// Whether scanning completed without errors.
+    pub success: bool,
+    /// The scan result, if successful.
+    pub result: Option<ScanResult>,
+    /// Error message if scanning failed.
+    pub error: Option<String>,
+}
+
+// ============================================================================
+// Wallet Types
+// ============================================================================
+
 /// Result of a wallet generation or restoration operation.
 ///
 /// Contains the wallet's addresses, viewing key, and seed phrase.

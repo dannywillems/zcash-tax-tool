@@ -51,6 +51,18 @@
         <li class="nav-item" role="presentation">
           <button
             class="nav-link"
+            id="scanner-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#scanner-pane"
+            type="button"
+            role="tab"
+          >
+            <i class="bi bi-database me-1"></i> Scanner &amp; Balance
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button
+            class="nav-link"
             id="wallet-tab"
             data-bs-toggle="tab"
             data-bs-target="#wallet-pane"
@@ -263,6 +275,157 @@
                   />
                 </svg>
                 <p>Enter a viewing key and transaction ID to decode</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-pane fade" id="scanner-pane" role="tabpanel">
+          <div class="row">
+            <div class="col-lg-6">
+              <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                  <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-broadcast me-1"></i> Scan Transaction
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <p class="text-muted small mb-3">
+                    Scan transactions to track your notes and compute your
+                    balance. Notes are stored in your browser's localStorage.
+                  </p>
+
+                  <div class="mb-3">
+                    <label for="scanRpcEndpoint" class="form-label"
+                      >RPC Endpoint</label
+                    >
+                    <select class="form-select mono" id="scanRpcEndpoint">
+                      <option value="">-- Select an endpoint --</option>
+                    </select>
+                  </div>
+
+                  <div class="mb-3">
+                    <label for="scanViewingKey" class="form-label"
+                      >Viewing Key (UFVK)</label
+                    >
+                    <textarea
+                      class="form-control mono"
+                      id="scanViewingKey"
+                      rows="2"
+                      placeholder="Enter your UFVK..."
+                    ></textarea>
+                    <div class="form-text">
+                      Your viewing key is saved locally for convenience.
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <label for="scanTxid" class="form-label"
+                      >Transaction ID</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control mono"
+                      id="scanTxid"
+                      placeholder="Enter transaction ID to scan..."
+                    />
+                  </div>
+
+                  <div class="row mb-3">
+                    <div class="col-6">
+                      <label for="scanNetwork" class="form-label"
+                        >Network</label
+                      >
+                      <select class="form-select" id="scanNetwork">
+                        <option value="testnet" selected>Testnet</option>
+                        <option value="mainnet">Mainnet</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label for="scanHeight" class="form-label"
+                        >Block Height (optional)</label
+                      >
+                      <input
+                        type="number"
+                        class="form-control"
+                        id="scanHeight"
+                        placeholder="e.g. 2500000"
+                      />
+                    </div>
+                  </div>
+
+                  <div id="scanError" class="alert alert-danger d-none"></div>
+
+                  <button
+                    type="button"
+                    class="btn btn-primary w-100"
+                    id="scanTxBtn"
+                  >
+                    <i class="bi bi-search me-1"></i> Scan Transaction
+                  </button>
+                </div>
+              </div>
+
+              <div id="scanResults" class="d-none">
+                <div id="scanSummary"></div>
+              </div>
+
+              <div
+                id="scanPlaceholder"
+                class="card border-secondary bg-light mb-4"
+              >
+                <div class="card-body text-center text-muted py-4">
+                  <i class="bi bi-broadcast fs-1"></i>
+                  <p class="mt-2 mb-0">
+                    Enter a transaction ID and viewing key to scan for notes.
+                  </p>
+                </div>
+              </div>
+
+              <div class="card border-info">
+                <div class="card-header bg-info bg-opacity-10">
+                  <h6 class="mb-0 fw-semibold text-info">How Scanning Works</h6>
+                </div>
+                <div class="card-body small">
+                  <p class="mb-2">
+                    <strong>Trial Decryption:</strong> The scanner attempts to
+                    decrypt each shielded output using your viewing key. Only
+                    outputs addressed to you will successfully decrypt.
+                  </p>
+                  <p class="mb-2">
+                    <strong>Nullifier Tracking:</strong> When you spend a note,
+                    its nullifier is revealed. By scanning transactions, we can
+                    detect which notes have been spent.
+                  </p>
+                  <p class="mb-0">
+                    <strong>Local Storage:</strong> All note data is stored in
+                    your browser's localStorage. Nothing is sent to any server.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div id="balanceDisplay" class="mb-4"></div>
+
+              <div class="card shadow-sm">
+                <div
+                  class="card-header d-flex justify-content-between align-items-center"
+                >
+                  <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-list-ul me-1"></i> Tracked Notes
+                  </h6>
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    id="clearNotesBtn"
+                    title="Clear all tracked notes"
+                  >
+                    <i class="bi bi-trash"></i> Clear
+                  </button>
+                </div>
+                <div class="card-body">
+                  <div id="notesDisplay"></div>
+                </div>
               </div>
             </div>
           </div>

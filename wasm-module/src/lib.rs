@@ -26,7 +26,8 @@ use zcash_protocol::consensus::{Network, NetworkType};
 // Re-export types from core library
 pub use zcash_wallet_core::{
     DecryptedOrchardAction, DecryptedSaplingOutput, DecryptedTransaction, DecryptionResult,
-    NetworkKind, TransparentInput, TransparentOutput, ViewingKeyInfo, WalletResult,
+    NetworkKind, Pool, ScanResult, ScanTransactionResult, ScannedNote, ScannedTransparentOutput,
+    SpentNullifier, TransparentInput, TransparentOutput, ViewingKeyInfo, WalletResult,
 };
 
 /// Log to browser console
@@ -457,6 +458,81 @@ pub fn restore_wallet(
         })
         .unwrap()
     })
+}
+
+/// Scan a transaction for notes belonging to a viewing key.
+///
+/// Performs trial decryption on all shielded outputs to find notes
+/// addressed to the viewing key. Also extracts nullifiers to track
+/// spent notes.
+///
+/// # Arguments
+///
+/// * `raw_tx_hex` - The raw transaction as a hexadecimal string
+/// * `viewing_key` - The viewing key (UFVK, UIVK, or legacy Sapling)
+/// * `network` - The network ("mainnet" or "testnet")
+/// * `height` - Optional block height (needed for full Sapling decryption)
+///
+/// # Returns
+///
+/// JSON string containing a `ScanTransactionResult` with found notes,
+/// spent nullifiers, and transparent outputs.
+#[wasm_bindgen]
+pub fn scan_transaction(
+    raw_tx_hex: &str,
+    viewing_key: &str,
+    network: &str,
+    height: Option<u32>,
+) -> String {
+    let result = scan_transaction_inner(raw_tx_hex, viewing_key, network, height);
+    serde_json::to_string(&result).unwrap_or_else(|e| {
+        serde_json::to_string(&ScanTransactionResult {
+            success: false,
+            result: None,
+            error: Some(format!("Serialization error: {}", e)),
+        })
+        .unwrap()
+    })
+}
+
+fn scan_transaction_inner(
+    raw_tx_hex: &str,
+    viewing_key: &str,
+    network_str: &str,
+    height: Option<u32>,
+) -> ScanTransactionResult {
+    let network = parse_network(network_str);
+    console_log(&format!(
+        "Scanning transaction with {} viewing key",
+        if viewing_key.starts_with("uview") {
+            "UFVK"
+        } else {
+            "unknown"
+        }
+    ));
+
+    match zcash_wallet_core::scan_transaction_hex(raw_tx_hex, viewing_key, network, height) {
+        Ok(result) => {
+            console_log(&format!(
+                "Scan complete: {} notes found, {} nullifiers",
+                result.notes.len(),
+                result.spent_nullifiers.len()
+            ));
+            ScanTransactionResult {
+                success: true,
+                result: Some(result),
+                error: None,
+            }
+        }
+        Err(e) => {
+            console_log(&format!("Scan failed: {}", e));
+            ScanTransactionResult {
+                success: false,
+                result: None,
+                error: Some(e.to_string()),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -6,10 +6,10 @@ use clap::{Parser, Subcommand};
 use rand::RngCore;
 use rand::rngs::OsRng;
 use zcash_protocol::consensus::Network;
+use zcash_wallet_core::{parse_transaction, scan_transaction as scan_tx};
 
 mod db;
 mod rpc;
-mod scanner;
 
 #[derive(Parser)]
 #[command(name = "zcash-wallet")]
@@ -388,8 +388,8 @@ fn scan_transaction(
     };
 
     // Parse and scan transaction
-    let tx = scanner::parse_transaction(&tx_hex, network)?;
-    let result = scanner::scan_transaction(&tx, viewing_key, network, height)?;
+    let tx = parse_transaction(&tx_hex, network)?;
+    let result = scan_tx(&tx, viewing_key, network, height)?;
 
     // Open database
     let db = db::Database::open(db_path)?;
@@ -400,7 +400,7 @@ fn scan_transaction(
         let inserted = db.insert_note(
             &result.txid,
             note.output_index as i64,
-            &note.pool,
+            note.pool.as_str(),
             note.value as i64,
             Some(note.commitment.as_str()),
             note.nullifier.as_deref(),

@@ -7,6 +7,8 @@ let wasmModule = null;
 const STORAGE_KEYS = {
   endpoints: "zcash_viewer_endpoints",
   selectedEndpoint: "zcash_viewer_selected_endpoint",
+  notes: "zcash_viewer_notes",
+  scanViewingKey: "zcash_viewer_scan_viewing_key",
 };
 
 // Default RPC endpoints (users can add their own)
@@ -618,6 +620,399 @@ function toggleTheme() {
 }
 
 // ===========================================================================
+// Note Storage (localStorage)
+// ===========================================================================
+
+function loadNotes() {
+  const stored = localStorage.getItem(STORAGE_KEYS.notes);
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function saveNotes(notes) {
+  localStorage.setItem(STORAGE_KEYS.notes, JSON.stringify(notes));
+}
+
+function addNote(note, txid) {
+  const notes = loadNotes();
+  // Create a unique ID for the note
+  const noteId = `${txid}-${note.pool}-${note.output_index}`;
+
+  // Check if note already exists
+  const existingIndex = notes.findIndex((n) => n.id === noteId);
+  if (existingIndex >= 0) {
+    // Update existing note
+    notes[existingIndex] = { ...note, id: noteId, txid, spentTxid: null };
+  } else {
+    // Add new note
+    notes.push({ ...note, id: noteId, txid, spentTxid: null });
+  }
+
+  saveNotes(notes);
+  return existingIndex < 0; // Return true if newly added
+}
+
+function markNotesSpent(nullifiers, spendingTxid) {
+  const notes = loadNotes();
+  let markedCount = 0;
+
+  for (const nf of nullifiers) {
+    for (const note of notes) {
+      if (note.nullifier === nf.nullifier && !note.spentTxid) {
+        note.spentTxid = spendingTxid;
+        markedCount++;
+      }
+    }
+  }
+
+  if (markedCount > 0) {
+    saveNotes(notes);
+  }
+  return markedCount;
+}
+
+function getUnspentNotes() {
+  return loadNotes().filter((n) => !n.spentTxid && n.value > 0);
+}
+
+function getAllNotes() {
+  return loadNotes();
+}
+
+function getBalance() {
+  return getUnspentNotes().reduce((sum, n) => sum + n.value, 0);
+}
+
+function getBalanceByPool() {
+  const notes = getUnspentNotes();
+  const balances = {};
+
+  for (const note of notes) {
+    if (!balances[note.pool]) {
+      balances[note.pool] = 0;
+    }
+    balances[note.pool] += note.value;
+  }
+
+  return balances;
+}
+
+function clearNotes() {
+  localStorage.removeItem(STORAGE_KEYS.notes);
+}
+
+// ===========================================================================
+// Transaction Scanner
+// ===========================================================================
+
+function initScannerUI() {
+  const scanBtn = document.getElementById("scanTxBtn");
+  const clearNotesBtn = document.getElementById("clearNotesBtn");
+
+  if (scanBtn) {
+    scanBtn.addEventListener("click", scanTransaction);
+  }
+  if (clearNotesBtn) {
+    clearNotesBtn.addEventListener("click", () => {
+      if (confirm("Are you sure you want to clear all tracked notes?")) {
+        clearNotes();
+        updateBalanceDisplay();
+        updateNotesDisplay();
+      }
+    });
+  }
+
+  // Load saved viewing key
+  const scanViewingKeyInput = document.getElementById("scanViewingKey");
+  if (scanViewingKeyInput) {
+    const savedKey = localStorage.getItem(STORAGE_KEYS.scanViewingKey);
+    if (savedKey) {
+      scanViewingKeyInput.value = savedKey;
+    }
+    scanViewingKeyInput.addEventListener("change", () => {
+      localStorage.setItem(
+        STORAGE_KEYS.scanViewingKey,
+        scanViewingKeyInput.value
+      );
+    });
+  }
+
+  // Initial display update
+  updateBalanceDisplay();
+  updateNotesDisplay();
+}
+
+async function scanTransaction() {
+  const txidInput = document.getElementById("scanTxid");
+  const viewingKeyInput = document.getElementById("scanViewingKey");
+  const networkSelect = document.getElementById("scanNetwork");
+  const heightInput = document.getElementById("scanHeight");
+  const rpcSelect = document.getElementById("scanRpcEndpoint");
+
+  const txid = txidInput?.value.trim();
+  const viewingKey = viewingKeyInput?.value.trim();
+  const network = networkSelect?.value || "testnet";
+  const height = heightInput?.value ? parseInt(heightInput.value, 10) : null;
+  const rpcEndpoint = rpcSelect?.value;
+
+  if (!txid || !viewingKey) {
+    showScanError("Please enter both a transaction ID and viewing key.");
+    return;
+  }
+
+  if (!rpcEndpoint) {
+    showScanError("Please select an RPC endpoint.");
+    return;
+  }
+
+  if (!wasmModule) {
+    showScanError("WASM module not loaded. Please refresh the page.");
+    return;
+  }
+
+  // Validate txid format
+  if (!/^[a-fA-F0-9]{64}$/.test(txid)) {
+    showScanError(
+      "Invalid transaction ID format. Expected 64 hexadecimal characters."
+    );
+    return;
+  }
+
+  setScanLoading(true);
+  hideScanError();
+
+  try {
+    // Fetch raw transaction
+    const rawTx = await fetchRawTransaction(rpcEndpoint, txid);
+
+    if (!rawTx) {
+      showScanError("Failed to fetch transaction.");
+      setScanLoading(false);
+      return;
+    }
+
+    // Scan transaction using WASM
+    const resultJson = wasmModule.scan_transaction(
+      rawTx,
+      viewingKey,
+      network,
+      height
+    );
+    const result = JSON.parse(resultJson);
+
+    if (result.success && result.result) {
+      processScanResult(result.result);
+    } else {
+      showScanError(result.error || "Failed to scan transaction.");
+    }
+  } catch (error) {
+    console.error("Scan error:", error);
+    showScanError(`Error: ${error.message}`);
+  } finally {
+    setScanLoading(false);
+  }
+}
+
+function processScanResult(scanResult) {
+  let notesAdded = 0;
+  let notesWithValue = 0;
+
+  // Add notes from scan result
+  for (const note of scanResult.notes) {
+    if (addNote(note, scanResult.txid)) {
+      notesAdded++;
+    }
+    if (note.value > 0) {
+      notesWithValue++;
+    }
+  }
+
+  // Mark spent notes by nullifiers
+  const notesSpent = markNotesSpent(
+    scanResult.spent_nullifiers,
+    scanResult.txid
+  );
+
+  // Update displays
+  updateBalanceDisplay();
+  updateNotesDisplay();
+
+  // Show results
+  const resultsDiv = document.getElementById("scanResults");
+  const placeholderDiv = document.getElementById("scanPlaceholder");
+
+  if (placeholderDiv) placeholderDiv.classList.add("d-none");
+  if (resultsDiv) resultsDiv.classList.remove("d-none");
+
+  const summaryDiv = document.getElementById("scanSummary");
+  if (summaryDiv) {
+    summaryDiv.innerHTML = `
+      <div class="alert alert-success mb-3">
+        <strong>Scan Complete</strong><br>
+        Transaction: <code>${scanResult.txid.slice(0, 16)}...</code><br>
+        Notes found: ${scanResult.notes.length} (${notesWithValue} with value)<br>
+        New notes added: ${notesAdded}<br>
+        Nullifiers found: ${scanResult.spent_nullifiers.length}<br>
+        Notes marked spent: ${notesSpent}
+      </div>
+    `;
+  }
+}
+
+function updateBalanceDisplay() {
+  const balanceDiv = document.getElementById("balanceDisplay");
+  if (!balanceDiv) return;
+
+  const balance = getBalance();
+  const poolBalances = getBalanceByPool();
+
+  let html = `
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Total Balance</h5>
+        <p class="display-6">${formatZatoshi(balance)} ZEC</p>
+        <hr>
+        <h6>By Pool</h6>
+  `;
+
+  if (Object.keys(poolBalances).length === 0) {
+    html += `<p class="text-muted">No notes tracked yet.</p>`;
+  } else {
+    for (const [pool, amount] of Object.entries(poolBalances)) {
+      const poolLabel = pool.charAt(0).toUpperCase() + pool.slice(1);
+      html += `<p class="mb-1">${poolLabel}: <strong>${formatZatoshi(amount)} ZEC</strong></p>`;
+    }
+  }
+
+  html += `
+      </div>
+    </div>
+  `;
+
+  balanceDiv.innerHTML = html;
+}
+
+function updateNotesDisplay() {
+  const notesDiv = document.getElementById("notesDisplay");
+  if (!notesDiv) return;
+
+  const notes = getAllNotes();
+
+  if (notes.length === 0) {
+    notesDiv.innerHTML = `
+      <div class="text-muted text-center py-4">
+        <i class="bi bi-inbox fs-1"></i>
+        <p>No notes tracked yet. Scan a transaction to get started.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Sort notes: unspent first, then by value descending
+  notes.sort((a, b) => {
+    if (a.spentTxid && !b.spentTxid) return 1;
+    if (!a.spentTxid && b.spentTxid) return -1;
+    return b.value - a.value;
+  });
+
+  let html = `
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Pool</th>
+            <th>Value</th>
+            <th>Memo</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  for (const note of notes) {
+    const poolClass = note.pool === "orchard" ? "text-info" : "text-success";
+    const statusBadge = note.spentTxid
+      ? '<span class="badge bg-danger">Spent</span>'
+      : '<span class="badge bg-success">Unspent</span>';
+
+    html += `
+      <tr class="${note.spentTxid ? "text-muted" : ""}">
+        <td><span class="${poolClass}">${note.pool}</span></td>
+        <td>${note.value > 0 ? formatZatoshi(note.value) + " ZEC" : "-"}</td>
+        <td>${note.memo ? escapeHtml(note.memo.slice(0, 30)) + (note.memo.length > 30 ? "..." : "") : "-"}</td>
+        <td>${statusBadge}</td>
+      </tr>
+    `;
+  }
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+    <p class="small text-muted">Total notes: ${notes.length}</p>
+  `;
+
+  notesDiv.innerHTML = html;
+}
+
+function setScanLoading(loading) {
+  const btn = document.getElementById("scanTxBtn");
+  if (!btn) return;
+
+  if (loading) {
+    btn.disabled = true;
+    btn.innerHTML =
+      '<span class="spinner-border spinner-border-sm me-1"></span> Scanning...';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-search me-1"></i> Scan Transaction';
+  }
+}
+
+function showScanError(message) {
+  const errorDiv = document.getElementById("scanError");
+  if (errorDiv) {
+    errorDiv.classList.remove("d-none");
+    errorDiv.textContent = message;
+  }
+}
+
+function hideScanError() {
+  const errorDiv = document.getElementById("scanError");
+  if (errorDiv) {
+    errorDiv.classList.add("d-none");
+  }
+}
+
+// Populate scanner RPC endpoints from main endpoint list
+function populateScannerEndpoints() {
+  const scanRpcSelect = document.getElementById("scanRpcEndpoint");
+  if (!scanRpcSelect) return;
+
+  const endpoints = loadEndpoints();
+  const selectedUrl = getSelectedEndpoint();
+
+  scanRpcSelect.innerHTML =
+    '<option value="">-- Select an endpoint --</option>';
+
+  endpoints.forEach((endpoint) => {
+    const option = document.createElement("option");
+    option.value = endpoint.url;
+    option.textContent = `${endpoint.name} (${endpoint.url})`;
+    if (endpoint.url === selectedUrl) {
+      option.selected = true;
+    }
+    scanRpcSelect.appendChild(option);
+  });
+}
+
+// ===========================================================================
 // Wallet Generation
 // ===========================================================================
 
@@ -852,6 +1247,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   renderEndpoints();
+  populateScannerEndpoints();
   initWalletUI();
+  initScannerUI();
   await initWasm();
 });
