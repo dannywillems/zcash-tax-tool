@@ -49,7 +49,10 @@ impl core::fmt::Display for TransactionError {
             }
             Self::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             Self::InvalidOutput(msg) => write!(f, "Invalid output: {}", msg),
-            Self::InsufficientFunds { available, required } => {
+            Self::InsufficientFunds {
+                available,
+                required,
+            } => {
                 write!(
                     f,
                     "Insufficient funds: available {} zatoshis, required {} zatoshis",
@@ -192,12 +195,12 @@ pub fn find_address_index(
     let ivk = tfvk.derive_external_ivk().ok()?;
 
     for i in 0..max_index {
-        if let Some(child_index) = NonHardenedChildIndex::from_index(i) {
-            if let Ok(addr) = ivk.derive_address(child_index) {
-                let encoded = addr.encode(&network);
-                if encoded == address {
-                    return Some(i);
-                }
+        if let Some(child_index) = NonHardenedChildIndex::from_index(i)
+            && let Ok(addr) = ivk.derive_address(child_index)
+        {
+            let encoded = addr.encode(&network);
+            if encoded == address {
+                return Some(i);
             }
         }
     }
@@ -215,8 +218,9 @@ fn derive_transparent_account_key(
         .map_err(|e| TransactionError::InvalidSeedPhrase(e.to_string()))?;
     let seed = mnemonic.to_seed("");
 
-    let account_id = AccountId::try_from(account)
-        .map_err(|_| TransactionError::SpendingKeyDerivation("Invalid account index".to_string()))?;
+    let account_id = AccountId::try_from(account).map_err(|_| {
+        TransactionError::SpendingKeyDerivation("Invalid account index".to_string())
+    })?;
     let usk = UnifiedSpendingKey::from_seed(&network, &seed, account_id)
         .map_err(|e| TransactionError::SpendingKeyDerivation(format!("{:?}", e)))?;
 
@@ -228,8 +232,9 @@ fn parse_transparent_address(
     address: &str,
     network: Network,
 ) -> Result<TransparentAddress, TransactionError> {
-    TransparentAddress::decode(&network, address)
-        .map_err(|_| TransactionError::InvalidOutput(format!("Invalid transparent address: {}", address)))
+    TransparentAddress::decode(&network, address).map_err(|_| {
+        TransactionError::InvalidOutput(format!("Invalid transparent address: {}", address))
+    })
 }
 
 /// Parse a transaction ID from a hex string.
@@ -354,9 +359,9 @@ pub fn build_unsigned_transaction(
         let value = Zatoshis::from_u64(recipient.amount)
             .map_err(|_| TransactionError::InvalidOutput("Invalid output value".to_string()))?;
 
-        builder.add_output(&address, value).map_err(|e| {
-            TransactionError::BuildFailed(format!("Failed to add output: {:?}", e))
-        })?;
+        builder
+            .add_output(&address, value)
+            .map_err(|e| TransactionError::BuildFailed(format!("Failed to add output: {:?}", e)))?;
     }
 
     // Add change output if needed
@@ -367,9 +372,11 @@ pub fn build_unsigned_transaction(
         let change_value = Zatoshis::from_u64(change)
             .map_err(|_| TransactionError::InvalidOutput("Invalid change value".to_string()))?;
 
-        builder.add_output(&change_address, change_value).map_err(|e| {
-            TransactionError::BuildFailed(format!("Failed to add change output: {:?}", e))
-        })?;
+        builder
+            .add_output(&change_address, change_value)
+            .map_err(|e| {
+                TransactionError::BuildFailed(format!("Failed to add change output: {:?}", e))
+            })?;
     }
 
     // Build the unsigned bundle
@@ -414,7 +421,8 @@ pub fn build_transparent_transaction(
     fee: u64,
 ) -> Result<SignedTransaction, TransactionError> {
     // Build the unsigned transaction
-    let unsigned = build_unsigned_transaction(seed_phrase, network, account, utxos, recipients, fee)?;
+    let unsigned =
+        build_unsigned_transaction(seed_phrase, network, account, utxos, recipients, fee)?;
 
     // Note: Full signing requires integrating with zcash_primitives transaction builder
     // or implementing the ZIP 244 sighash computation manually.
@@ -430,18 +438,16 @@ pub fn build_transparent_transaction(
     //
     // For now, return an informative error.
 
-    Err(TransactionError::BuildFailed(
-        format!(
-            "Transaction building succeeded (inputs: {} zatoshis, outputs: {} zatoshis, fee: {} zatoshis), \
+    Err(TransactionError::BuildFailed(format!(
+        "Transaction building succeeded (inputs: {} zatoshis, outputs: {} zatoshis, fee: {} zatoshis), \
              but signing is not yet fully implemented. \
              The transparent bundle has been constructed with {} inputs and outputs are ready. \
              Full signing requires ZIP 244 sighash computation which is tracked in issue #70.",
-            unsigned.total_input,
-            unsigned.total_output,
-            unsigned.fee,
-            unsigned.bundle.vin.len()
-        )
-    ))
+        unsigned.total_input,
+        unsigned.total_output,
+        unsigned.fee,
+        unsigned.bundle.vin.len()
+    )))
 }
 
 #[cfg(test)]
@@ -453,9 +459,14 @@ mod tests {
     #[test]
     fn test_find_address_index() {
         // First, derive an address at a known index
-        let addresses =
-            crate::wallet::derive_transparent_addresses(TEST_SEED_PHRASE, Network::TestNetwork, 0, 0, 10)
-                .unwrap();
+        let addresses = crate::wallet::derive_transparent_addresses(
+            TEST_SEED_PHRASE,
+            Network::TestNetwork,
+            0,
+            0,
+            10,
+        )
+        .unwrap();
 
         // Now find it
         let index = find_address_index(
@@ -504,7 +515,10 @@ mod tests {
         );
 
         match result {
-            Err(TransactionError::InsufficientFunds { available, required }) => {
+            Err(TransactionError::InsufficientFunds {
+                available,
+                required,
+            }) => {
                 assert_eq!(available, 1000);
                 assert_eq!(required, 3000);
             }
@@ -515,9 +529,14 @@ mod tests {
     #[test]
     fn test_build_unsigned_with_valid_utxo() {
         // Derive an address first
-        let addresses =
-            crate::wallet::derive_transparent_addresses(TEST_SEED_PHRASE, Network::TestNetwork, 0, 0, 1)
-                .unwrap();
+        let addresses = crate::wallet::derive_transparent_addresses(
+            TEST_SEED_PHRASE,
+            Network::TestNetwork,
+            0,
+            0,
+            1,
+        )
+        .unwrap();
 
         let utxos = vec![Utxo {
             txid: "0000000000000000000000000000000000000000000000000000000000000001".to_string(),
