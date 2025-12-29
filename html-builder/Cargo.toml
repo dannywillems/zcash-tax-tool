@@ -1,0 +1,12 @@
+[package]
+name = "html-builder"
+version = "0.1.0"
+edition = "2024"
+description = "A minimal, zero-dependency HTML builder for Rust"
+license = "MIT"
+
+# Keep this crate independent from the workspace
+[workspace]
+
+[dependencies]
+# No dependencies - that's the point!
