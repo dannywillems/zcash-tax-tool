@@ -1880,6 +1880,36 @@ async function deriveAddresses() {
   }
 }
 
+function truncateAddress(address, startChars = 12, endChars = 6) {
+  if (!address || address.length <= startChars + endChars + 3) {
+    return address;
+  }
+  return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
+
+function copyAddress(address, btnId) {
+  navigator.clipboard
+    .writeText(address)
+    .then(() => {
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        const icon = btn.querySelector("i");
+        if (icon) {
+          icon.className = "bi bi-check";
+          setTimeout(() => {
+            icon.className = "bi bi-clipboard";
+          }, 1500);
+        }
+      }
+    })
+    .catch((err) => {
+      console.error("Failed to copy:", err);
+    });
+}
+
+// Expose to global scope for onclick handlers
+window.copyAddress = copyAddress;
+
 function displayDerivedAddresses() {
   const displayDiv = document.getElementById("addressesDisplay");
   const copyAllBtn = document.getElementById("copyAllAddressesBtn");
@@ -1905,10 +1935,10 @@ function displayDerivedAddresses() {
 
   let html = `
     <div class="table-responsive">
-      <table class="table table-sm table-hover">
+      <table class="table table-sm">
         <thead>
           <tr>
-            <th style="width: 60px">Index</th>
+            <th style="width: 50px">Index</th>
             <th>Transparent Address</th>
             <th>Unified Address</th>
           </tr>
@@ -1917,11 +1947,27 @@ function displayDerivedAddresses() {
   `;
 
   for (const addr of derivedAddressesData) {
+    const transparentId = `copy-t-${addr.index}`;
+    const unifiedId = `copy-u-${addr.index}`;
     html += `
       <tr>
-        <td class="text-muted">${addr.index}</td>
-        <td class="mono small text-truncate" style="max-width: 200px" title="${escapeHtml(addr.transparent)}">${escapeHtml(addr.transparent)}</td>
-        <td class="mono small text-truncate" style="max-width: 300px" title="${escapeHtml(addr.unified)}">${escapeHtml(addr.unified)}</td>
+        <td class="text-muted align-middle">${addr.index}</td>
+        <td class="align-middle">
+          <div class="d-flex align-items-center gap-2">
+            <code class="small" title="${escapeHtml(addr.transparent)}">${escapeHtml(truncateAddress(addr.transparent, 10, 8))}</code>
+            <button id="${transparentId}" class="btn btn-sm btn-link p-0 text-muted" onclick="copyAddress('${escapeHtml(addr.transparent)}', '${transparentId}')" title="Copy address">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </div>
+        </td>
+        <td class="align-middle">
+          <div class="d-flex align-items-center gap-2">
+            <code class="small" title="${escapeHtml(addr.unified)}">${escapeHtml(truncateAddress(addr.unified, 14, 8))}</code>
+            <button id="${unifiedId}" class="btn btn-sm btn-link p-0 text-muted" onclick="copyAddress('${escapeHtml(addr.unified)}', '${unifiedId}')" title="Copy address">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </div>
+        </td>
       </tr>
     `;
   }
