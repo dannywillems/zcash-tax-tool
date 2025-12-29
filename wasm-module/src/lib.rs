@@ -26,8 +26,9 @@ use zcash_protocol::consensus::{Network, NetworkType};
 // Re-export types from core library
 pub use zcash_wallet_core::{
     DecryptedOrchardAction, DecryptedSaplingOutput, DecryptedTransaction, DecryptionResult,
-    NetworkKind, Pool, ScanResult, ScanTransactionResult, ScannedNote, ScannedTransparentOutput,
-    SpentNullifier, TransparentInput, TransparentOutput, ViewingKeyInfo, WalletResult,
+    NetworkKind, NoteCollection, Pool, ScanResult, ScanTransactionResult, ScannedNote,
+    ScannedTransparentOutput, SpentNullifier, StorageResult, StoredNote, TransparentInput,
+    TransparentOutput, TransparentSpend, ViewingKeyInfo, WalletResult,
 };
 
 /// Log to browser console
@@ -628,6 +629,418 @@ fn scan_transaction_inner(
             }
         }
     }
+}
+
+// ============================================================================
+// Note Storage Operations
+// ============================================================================
+
+/// Result type for balance calculations
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BalanceResult {
+    success: bool,
+    total: u64,
+    by_pool: std::collections::HashMap<String, u64>,
+    error: Option<String>,
+}
+
+/// Result type for note operations that modify the collection
+#[derive(serde::Serialize, serde::Deserialize)]
+struct NoteOperationResult {
+    success: bool,
+    notes: Vec<StoredNote>,
+    added: Option<bool>,
+    marked_count: Option<usize>,
+    error: Option<String>,
+}
+
+/// Create a new stored note from individual parameters.
+///
+/// This is useful when converting scan results to stored notes.
+///
+/// # Arguments
+///
+/// * `wallet_id` - The wallet ID this note belongs to
+/// * `txid` - Transaction ID where the note was received
+/// * `pool` - Pool type ("orchard", "sapling", or "transparent")
+/// * `output_index` - Output index within the transaction
+/// * `value` - Value in zatoshis
+/// * `commitment` - Note commitment (optional, for shielded notes)
+/// * `nullifier` - Nullifier (optional, for shielded notes)
+/// * `memo` - Memo field (optional)
+/// * `address` - Recipient address (optional)
+/// * `created_at` - ISO 8601 timestamp
+///
+/// # Returns
+///
+/// JSON string containing the StoredNote or an error.
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn create_stored_note(
+    wallet_id: &str,
+    txid: &str,
+    pool: &str,
+    output_index: u32,
+    value: u64,
+    commitment: Option<String>,
+    nullifier: Option<String>,
+    memo: Option<String>,
+    address: Option<String>,
+    created_at: &str,
+) -> String {
+    let pool_enum = match pool.to_lowercase().as_str() {
+        "orchard" => Pool::Orchard,
+        "sapling" => Pool::Sapling,
+        "transparent" => Pool::Transparent,
+        _ => {
+            return serde_json::to_string(&StorageResult::<StoredNote>::err(format!(
+                "Invalid pool: {}",
+                pool
+            )))
+            .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+        }
+    };
+
+    let id = StoredNote::generate_id(txid, pool_enum, output_index);
+
+    let note = StoredNote {
+        id,
+        wallet_id: wallet_id.to_string(),
+        txid: txid.to_string(),
+        output_index,
+        pool: pool_enum,
+        value,
+        commitment,
+        nullifier,
+        memo,
+        address,
+        spent_txid: None,
+        created_at: created_at.to_string(),
+    };
+
+    serde_json::to_string(&StorageResult::ok(note))
+        .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Add or update a note in the notes list.
+///
+/// If a note with the same ID already exists, it will be updated.
+/// Otherwise, the note will be added.
+///
+/// # Arguments
+///
+/// * `notes_json` - JSON array of existing StoredNotes
+/// * `note_json` - JSON of the StoredNote to add/update
+///
+/// # Returns
+///
+/// JSON containing the updated notes array and whether a new note was added.
+#[wasm_bindgen]
+pub fn add_note_to_list(notes_json: &str, note_json: &str) -> String {
+    let mut collection: NoteCollection = match serde_json::from_str(notes_json) {
+        Ok(c) => c,
+        Err(_) => {
+            // Try parsing as a plain array
+            match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
+                Ok(notes) => NoteCollection { notes },
+                Err(e) => {
+                    return serde_json::to_string(&NoteOperationResult {
+                        success: false,
+                        notes: vec![],
+                        added: None,
+                        marked_count: None,
+                        error: Some(format!("Failed to parse notes: {}", e)),
+                    })
+                    .unwrap_or_else(|_| {
+                        r#"{"success":false,"error":"Serialization error"}"#.to_string()
+                    });
+                }
+            }
+        }
+    };
+
+    let note: StoredNote = match serde_json::from_str(note_json) {
+        Ok(n) => n,
+        Err(e) => {
+            return serde_json::to_string(&NoteOperationResult {
+                success: false,
+                notes: collection.notes,
+                added: None,
+                marked_count: None,
+                error: Some(format!("Failed to parse note: {}", e)),
+            })
+            .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+        }
+    };
+
+    let was_added = collection.add_or_update(note);
+
+    serde_json::to_string(&NoteOperationResult {
+        success: true,
+        notes: collection.notes,
+        added: Some(was_added),
+        marked_count: None,
+        error: None,
+    })
+    .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Mark notes as spent by matching nullifiers.
+///
+/// Finds notes with matching nullifiers and sets their spent_txid.
+///
+/// # Arguments
+///
+/// * `notes_json` - JSON array of StoredNotes
+/// * `nullifiers_json` - JSON array of SpentNullifier objects
+/// * `spending_txid` - Transaction ID where the notes were spent
+///
+/// # Returns
+///
+/// JSON containing the updated notes array and count of marked notes.
+#[wasm_bindgen]
+pub fn mark_notes_spent(notes_json: &str, nullifiers_json: &str, spending_txid: &str) -> String {
+    let mut collection: NoteCollection = match serde_json::from_str(notes_json) {
+        Ok(c) => c,
+        Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
+            Ok(notes) => NoteCollection { notes },
+            Err(e) => {
+                return serde_json::to_string(&NoteOperationResult {
+                    success: false,
+                    notes: vec![],
+                    added: None,
+                    marked_count: None,
+                    error: Some(format!("Failed to parse notes: {}", e)),
+                })
+                .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+            }
+        },
+    };
+
+    let nullifiers: Vec<SpentNullifier> = match serde_json::from_str(nullifiers_json) {
+        Ok(n) => n,
+        Err(e) => {
+            return serde_json::to_string(&NoteOperationResult {
+                success: false,
+                notes: collection.notes,
+                added: None,
+                marked_count: None,
+                error: Some(format!("Failed to parse nullifiers: {}", e)),
+            })
+            .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+        }
+    };
+
+    let marked_count = collection.mark_spent_by_nullifiers(&nullifiers, spending_txid);
+
+    serde_json::to_string(&NoteOperationResult {
+        success: true,
+        notes: collection.notes,
+        added: None,
+        marked_count: Some(marked_count),
+        error: None,
+    })
+    .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Mark transparent notes as spent by matching prevout references.
+///
+/// Finds transparent notes matching txid:output_index and sets their spent_txid.
+///
+/// # Arguments
+///
+/// * `notes_json` - JSON array of StoredNotes
+/// * `spends_json` - JSON array of TransparentSpend objects
+/// * `spending_txid` - Transaction ID where the notes were spent
+///
+/// # Returns
+///
+/// JSON containing the updated notes array and count of marked notes.
+#[wasm_bindgen]
+pub fn mark_transparent_spent(notes_json: &str, spends_json: &str, spending_txid: &str) -> String {
+    let mut collection: NoteCollection = match serde_json::from_str(notes_json) {
+        Ok(c) => c,
+        Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
+            Ok(notes) => NoteCollection { notes },
+            Err(e) => {
+                return serde_json::to_string(&NoteOperationResult {
+                    success: false,
+                    notes: vec![],
+                    added: None,
+                    marked_count: None,
+                    error: Some(format!("Failed to parse notes: {}", e)),
+                })
+                .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+            }
+        },
+    };
+
+    let spends: Vec<TransparentSpend> = match serde_json::from_str(spends_json) {
+        Ok(s) => s,
+        Err(e) => {
+            return serde_json::to_string(&NoteOperationResult {
+                success: false,
+                notes: collection.notes,
+                added: None,
+                marked_count: None,
+                error: Some(format!("Failed to parse spends: {}", e)),
+            })
+            .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+        }
+    };
+
+    let marked_count = collection.mark_spent_by_transparent(&spends, spending_txid);
+
+    serde_json::to_string(&NoteOperationResult {
+        success: true,
+        notes: collection.notes,
+        added: None,
+        marked_count: Some(marked_count),
+        error: None,
+    })
+    .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Calculate the balance from a list of notes.
+///
+/// Returns the total balance and balance broken down by pool.
+/// Only counts unspent notes with positive value.
+///
+/// # Arguments
+///
+/// * `notes_json` - JSON array of StoredNotes
+///
+/// # Returns
+///
+/// JSON containing total balance and balance by pool.
+#[wasm_bindgen]
+pub fn calculate_balance(notes_json: &str) -> String {
+    let collection: NoteCollection = match serde_json::from_str(notes_json) {
+        Ok(c) => c,
+        Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
+            Ok(notes) => NoteCollection { notes },
+            Err(e) => {
+                return serde_json::to_string(&BalanceResult {
+                    success: false,
+                    total: 0,
+                    by_pool: std::collections::HashMap::new(),
+                    error: Some(format!("Failed to parse notes: {}", e)),
+                })
+                .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+            }
+        },
+    };
+
+    let total = collection.total_balance();
+    let by_pool_enum = collection.balance_by_pool();
+
+    // Convert Pool keys to strings for JSON
+    let by_pool: std::collections::HashMap<String, u64> = by_pool_enum
+        .into_iter()
+        .map(|(k, v)| (k.as_str().to_string(), v))
+        .collect();
+
+    serde_json::to_string(&BalanceResult {
+        success: true,
+        total,
+        by_pool,
+        error: None,
+    })
+    .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Get all unspent notes with positive value.
+///
+/// Filters the notes list to only include notes that haven't been spent
+/// and have a value greater than zero.
+///
+/// # Arguments
+///
+/// * `notes_json` - JSON array of StoredNotes
+///
+/// # Returns
+///
+/// JSON array of unspent StoredNotes.
+#[wasm_bindgen]
+pub fn get_unspent_notes(notes_json: &str) -> String {
+    let collection: NoteCollection = match serde_json::from_str(notes_json) {
+        Ok(c) => c,
+        Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
+            Ok(notes) => NoteCollection { notes },
+            Err(e) => {
+                return serde_json::to_string(&NoteOperationResult {
+                    success: false,
+                    notes: vec![],
+                    added: None,
+                    marked_count: None,
+                    error: Some(format!("Failed to parse notes: {}", e)),
+                })
+                .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+            }
+        },
+    };
+
+    let unspent: Vec<StoredNote> = collection
+        .unspent_notes()
+        .into_iter()
+        .cloned()
+        .collect();
+
+    serde_json::to_string(&NoteOperationResult {
+        success: true,
+        notes: unspent,
+        added: None,
+        marked_count: None,
+        error: None,
+    })
+    .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+}
+
+/// Get notes for a specific wallet.
+///
+/// Filters the notes list to only include notes belonging to the specified wallet.
+///
+/// # Arguments
+///
+/// * `notes_json` - JSON array of StoredNotes
+/// * `wallet_id` - The wallet ID to filter by
+///
+/// # Returns
+///
+/// JSON array of StoredNotes belonging to the wallet.
+#[wasm_bindgen]
+pub fn get_notes_for_wallet(notes_json: &str, wallet_id: &str) -> String {
+    let collection: NoteCollection = match serde_json::from_str(notes_json) {
+        Ok(c) => c,
+        Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
+            Ok(notes) => NoteCollection { notes },
+            Err(e) => {
+                return serde_json::to_string(&NoteOperationResult {
+                    success: false,
+                    notes: vec![],
+                    added: None,
+                    marked_count: None,
+                    error: Some(format!("Failed to parse notes: {}", e)),
+                })
+                .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+            }
+        },
+    };
+
+    let wallet_notes: Vec<StoredNote> = collection
+        .notes_for_wallet(wallet_id)
+        .into_iter()
+        .cloned()
+        .collect();
+
+    serde_json::to_string(&NoteOperationResult {
+        success: true,
+        notes: wallet_notes,
+        added: None,
+        marked_count: None,
+        error: None,
+    })
+    .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
 }
 
 #[cfg(test)]
