@@ -2,9 +2,12 @@
 
 import { STORAGE_KEYS, VIEW_MODES } from "./constants.js";
 import { loadWallets } from "./storage/wallets.js";
-import { loadNotes } from "./storage/notes.js";
+import { loadNotes, getAllNotes } from "./storage/notes.js";
 import { loadLedger } from "./storage/ledger.js";
-import { renderTxidLink } from "./utils.js";
+import { loadEndpoints } from "./storage/endpoints.js";
+import { renderTxidLink, getExplorerTxUrl } from "./utils.js";
+import { getWasm } from "./wasm.js";
+import { broadcastTransaction } from "./rpc.js";
 
 // Get current view mode
 export function getViewMode() {
@@ -229,6 +232,186 @@ export function updateReceiveAddress(walletId) {
   addressDisplay.textContent = address;
 }
 
+// Get default RPC endpoint for a network
+function getDefaultEndpointForNetwork(network) {
+  const endpoints = loadEndpoints();
+  // Find the first endpoint matching the network
+  const endpoint = endpoints.find((e) => e.network === network);
+  return endpoint?.url || null;
+}
+
+// Simple Send functionality
+async function handleSimpleSend() {
+  const wasmModule = getWasm();
+  const walletSelect = document.getElementById("simpleWalletSelect");
+  const addressInput = document.getElementById("simpleSendAddress");
+  const amountInput = document.getElementById("simpleSendAmount");
+  const errorDiv = document.getElementById("simpleSendError");
+  const confirmBtn = document.getElementById("simpleSendConfirmBtn");
+
+  const walletId = walletSelect?.value;
+  const recipient = addressInput?.value.trim();
+  const amountZec = parseFloat(amountInput?.value || "0");
+
+  // Hide previous errors
+  if (errorDiv) errorDiv.classList.add("d-none");
+
+  // Validation
+  if (!walletId) {
+    showSimpleSendError("Please select a wallet first.");
+    return;
+  }
+
+  if (!recipient) {
+    showSimpleSendError("Please enter a recipient address.");
+    return;
+  }
+
+  if (amountZec <= 0) {
+    showSimpleSendError("Please enter a valid amount.");
+    return;
+  }
+
+  const wallets = loadWallets();
+  const wallet = wallets.find((w) => w.id === walletId);
+
+  if (!wallet || !wallet.seed_phrase) {
+    showSimpleSendError("Selected wallet has no seed phrase.");
+    return;
+  }
+
+  if (!wasmModule) {
+    showSimpleSendError("WASM module not loaded. Please refresh the page.");
+    return;
+  }
+
+  // Get UTXOs for this wallet
+  const notes = getAllNotes();
+  const utxos = notes.filter(
+    (note) =>
+      note.wallet_id === walletId &&
+      note.pool === "transparent" &&
+      !note.spent_txid
+  );
+
+  if (utxos.length === 0) {
+    showSimpleSendError(
+      "No transparent UTXOs available. You need transparent funds to send."
+    );
+    return;
+  }
+
+  // Get default RPC endpoint for wallet's network
+  const network = wallet.network || "testnet";
+  const rpcEndpoint = getDefaultEndpointForNetwork(network);
+
+  if (!rpcEndpoint) {
+    showSimpleSendError(
+      `No RPC endpoint configured for ${network}. Please add one in Admin view.`
+    );
+    return;
+  }
+
+  const amountZat = Math.floor(amountZec * 100000000);
+  const feeZat = 10000; // Default fee: 0.0001 ZEC
+
+  // Set loading state
+  setSimpleSendLoading(true);
+
+  try {
+    // Build and sign transaction
+    const utxosJson = JSON.stringify(utxos);
+    const resultJson = wasmModule.build_transparent_transaction(
+      wallet.seed_phrase,
+      network,
+      wallet.account_index || 0,
+      utxosJson,
+      recipient,
+      BigInt(amountZat),
+      BigInt(feeZat)
+    );
+
+    const result = JSON.parse(resultJson);
+
+    if (!result.success || !result.signed_tx_hex) {
+      showSimpleSendError(result.error || "Failed to sign transaction.");
+      return;
+    }
+
+    // Broadcast transaction
+    const txid = await broadcastTransaction(rpcEndpoint, result.signed_tx_hex);
+
+    // Success - close modal and show result
+    const modal = bootstrap.Modal.getInstance(
+      document.getElementById("sendModal")
+    );
+    if (modal) modal.hide();
+
+    // Clear form
+    if (addressInput) addressInput.value = "";
+    if (amountInput) amountInput.value = "";
+
+    // Show success alert
+    showSimpleSendSuccess(txid, network);
+  } catch (error) {
+    console.error("Simple send error:", error);
+    showSimpleSendError(`Error: ${error.message}`);
+  } finally {
+    setSimpleSendLoading(false);
+  }
+}
+
+function showSimpleSendError(message) {
+  const errorDiv = document.getElementById("simpleSendError");
+  if (errorDiv) {
+    errorDiv.textContent = message;
+    errorDiv.classList.remove("d-none");
+  }
+}
+
+function showSimpleSendSuccess(txid, network) {
+  const explorerUrl = getExplorerTxUrl(txid, network);
+  const alertHtml = `
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+      <i class="bi bi-check-circle me-2"></i>
+      <strong>Transaction sent!</strong><br>
+      <a href="${explorerUrl}" target="_blank" rel="noopener noreferrer" class="alert-link">
+        View on explorer
+      </a>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  `;
+
+  // Insert alert at top of simple view
+  const simpleView = document.getElementById("simpleView");
+  if (simpleView) {
+    const alertContainer = document.createElement("div");
+    alertContainer.innerHTML = alertHtml;
+    simpleView.insertBefore(
+      alertContainer.firstElementChild,
+      simpleView.firstChild
+    );
+  }
+}
+
+function setSimpleSendLoading(loading) {
+  const btn = document.getElementById("simpleSendConfirmBtn");
+  if (!btn) return;
+
+  const btnText = btn.querySelector(".btn-text");
+  const spinner = btn.querySelector(".spinner-border");
+
+  if (loading) {
+    btn.disabled = true;
+    if (btnText) btnText.classList.add("d-none");
+    if (spinner) spinner.classList.remove("d-none");
+  } else {
+    btn.disabled = false;
+    if (btnText) btnText.classList.remove("d-none");
+    if (spinner) spinner.classList.add("d-none");
+  }
+}
+
 // Update mobile dropdown to reflect current view mode
 function updateMobileDropdown(mode) {
   const dropdownText = document.getElementById("viewModeDropdownText");
@@ -321,6 +504,21 @@ export function initViewModeUI() {
       const simpleWalletSelect = document.getElementById("simpleWalletSelect");
       const walletId = simpleWalletSelect ? simpleWalletSelect.value : null;
       updateReceiveAddress(walletId);
+    });
+  }
+
+  // Simple Send button
+  const simpleSendConfirmBtn = document.getElementById("simpleSendConfirmBtn");
+  if (simpleSendConfirmBtn) {
+    simpleSendConfirmBtn.addEventListener("click", handleSimpleSend);
+  }
+
+  // Clear send error when modal opens
+  const sendModal = document.getElementById("sendModal");
+  if (sendModal) {
+    sendModal.addEventListener("show.bs.modal", () => {
+      const errorDiv = document.getElementById("simpleSendError");
+      if (errorDiv) errorDiv.classList.add("d-none");
     });
   }
 
