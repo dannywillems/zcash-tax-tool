@@ -102,6 +102,20 @@ Before committing and pushing changes:
 
 Note: `make test` runs both `make test-rust` (unit tests for core, wasm, cli) and `make test-e2e` (CLI end-to-end tests).
 
+### Branching Strategy
+
+- **main**: Production branch, protected. No direct pushes allowed.
+- **develop**: Development branch. All PRs should target this branch.
+- **Never push directly to main or develop**. Always create a feature branch and submit a PR.
+- Feature branches should be named descriptively (e.g., `fix/dark-mode-seed-display`, `feat/qr-codes`)
+
+### Changelog
+
+- **Every bug fix or feature must have a CHANGELOG.md entry**
+- Follow [Keep a Changelog](https://keepachangelog.com/) format
+- Add entries under `## [Unreleased]` section
+- Categories: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`
+
 ### Commit Standards
 
 - No emojis in commit messages
