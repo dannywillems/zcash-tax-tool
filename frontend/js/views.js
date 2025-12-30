@@ -176,8 +176,9 @@ function updateSimpleTransactionList(walletId) {
       const color = isIncoming ? "text-success" : "text-danger";
       const sign = isIncoming ? "+" : "";
       const zec = (entry.net_change || 0) / 100000000;
-      const dateStr = entry.timestamp
-        ? new Date(entry.timestamp).toLocaleString()
+      const dateSource = entry.timestamp || entry.created_at;
+      const dateStr = dateSource
+        ? new Date(dateSource).toLocaleString()
         : "Unknown";
       const txidLink = entry.txid
         ? renderTxidLink(entry.txid, network, 6, 4)
