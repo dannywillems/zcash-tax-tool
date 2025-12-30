@@ -7,6 +7,7 @@
 use orchard::keys::{FullViewingKey as OrchardFvk, PreparedIncomingViewingKey, Scope};
 use orchard::note_encryption::OrchardDomain;
 use zcash_address::unified::{self, Container, Encoding};
+use zcash_keys::encoding::AddressCodec;
 use zcash_note_encryption::try_note_decryption;
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BranchId, Network};
@@ -187,7 +188,7 @@ pub fn parse_viewing_key_capabilities(
 ///
 /// * `tx` - The parsed transaction
 /// * `viewing_key` - The viewing key (UFVK, UIVK, or legacy Sapling)
-/// * `_network` - The network (currently unused)
+/// * `network` - The network (used for encoding transparent addresses)
 /// * `_height` - Block height (currently unused, needed for full Sapling decryption)
 ///
 /// # Returns
@@ -196,7 +197,7 @@ pub fn parse_viewing_key_capabilities(
 pub fn scan_transaction(
     tx: &Transaction,
     viewing_key: &str,
-    _network: Network,
+    network: Network,
     _height: Option<u32>,
 ) -> Result<ScanResult, ScannerError> {
     let txid = tx.txid().to_string();
@@ -227,10 +228,16 @@ pub fn scan_transaction(
         for (i, output) in transparent_bundle.vout.iter().enumerate() {
             let value = u64::from(output.value());
             transparent_received += value;
+
+            // Decode the transparent address from the script
+            let address = output
+                .recipient_address()
+                .map(|addr| addr.encode(&network));
+
             transparent_outputs.push(ScannedTransparentOutput {
                 index: i,
                 value,
-                address: None, // TODO: decode address from script
+                address: address.clone(),
             });
             // Also add to notes for unified tracking
             notes.push(ScannedNote {
@@ -240,7 +247,7 @@ pub fn scan_transaction(
                 commitment: String::new(), // Transparent outputs don't have commitments
                 nullifier: None,           // Transparent outputs use input references instead
                 memo: None,                // Transparent outputs don't have memos
-                address: None,             // TODO: decode address from script
+                address,
             });
         }
     }
@@ -456,6 +463,47 @@ mod tests {
                     .iter()
                     .any(|n| n.pool == Pool::Transparent),
             "Should find transparent outputs"
+        );
+
+        // Get the wallet's first transparent address for comparison
+        let first_transparent_address = wallet
+            .transparent_address
+            .as_ref()
+            .expect("Wallet should have a transparent address");
+
+        // Verify at least one transparent note has a decoded address
+        let transparent_notes: Vec<_> = scan_result
+            .notes
+            .iter()
+            .filter(|n| n.pool == Pool::Transparent)
+            .collect();
+
+        assert!(
+            !transparent_notes.is_empty(),
+            "Should have transparent notes"
+        );
+
+        // Check that addresses are decoded (not None)
+        let notes_with_addresses: Vec<_> = transparent_notes
+            .iter()
+            .filter(|n| n.address.is_some())
+            .collect();
+
+        assert!(
+            !notes_with_addresses.is_empty(),
+            "Transparent notes should have decoded addresses"
+        );
+
+        // Verify that the transaction output matches the wallet's first transparent address
+        let matching_notes: Vec<_> = transparent_notes
+            .iter()
+            .filter(|n| n.address.as_deref() == Some(first_transparent_address.as_str()))
+            .collect();
+
+        assert!(
+            !matching_notes.is_empty(),
+            "Should find a transparent output matching the wallet's first address: {}",
+            first_transparent_address
         );
     }
 }

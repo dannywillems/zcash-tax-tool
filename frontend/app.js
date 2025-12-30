@@ -651,7 +651,7 @@ function addNote(note, txid, walletId) {
 
   // Create stored note using WASM binding
   // Parameters: wallet_id, txid, pool, output_index, value, commitment, nullifier, memo, address, created_at
-  const storedNoteJson = wasmModule.create_stored_note(
+  const createResultJson = wasmModule.create_stored_note(
     walletId,
     txid,
     note.pool || "unknown",
@@ -663,6 +663,16 @@ function addNote(note, txid, walletId) {
     note.address || null,
     new Date().toISOString()
   );
+
+  // Unwrap the StorageResult to get the raw StoredNote
+  const createResult = JSON.parse(createResultJson);
+  if (!createResult.success) {
+    console.error("Failed to create stored note:", createResult.error);
+    return false;
+  }
+
+  // add_note_to_list expects raw StoredNote JSON, not wrapped in StorageResult
+  const storedNoteJson = JSON.stringify(createResult.result);
 
   // Add note to list (handles duplicates)
   const resultJson = wasmModule.add_note_to_list(notesJson, storedNoteJson);
