@@ -229,12 +229,42 @@ export function updateReceiveAddress(walletId) {
   addressDisplay.textContent = address;
 }
 
+// Update mobile dropdown to reflect current view mode
+function updateMobileDropdown(mode) {
+  const dropdownText = document.getElementById("viewModeDropdownText");
+  const dropdownIcon = document.getElementById("viewModeDropdownIcon");
+
+  if (!dropdownText || !dropdownIcon) return;
+
+  const modeConfig = {
+    simple: { text: "Simple", icon: "bi-phone" },
+    accountant: { text: "Accountant", icon: "bi-journal-text" },
+    admin: { text: "Admin", icon: "bi-gear" },
+  };
+
+  const config = modeConfig[mode] || modeConfig.admin;
+  dropdownText.textContent = config.text;
+  dropdownIcon.className = `bi ${config.icon} me-1`;
+}
+
 // Initialize view mode UI
 export function initViewModeUI() {
+  // Desktop: Radio buttons
   const viewModeRadios = document.querySelectorAll('input[name="viewMode"]');
   viewModeRadios.forEach((radio) => {
     radio.addEventListener("change", (e) => {
       setViewMode(e.target.value);
+      updateMobileDropdown(e.target.value);
+    });
+  });
+
+  // Mobile: Dropdown items
+  const dropdownItems = document.querySelectorAll("[data-view-mode]");
+  dropdownItems.forEach((item) => {
+    item.addEventListener("click", () => {
+      const mode = item.getAttribute("data-view-mode");
+      setViewMode(mode);
+      updateMobileDropdown(mode);
     });
   });
 
@@ -294,5 +324,7 @@ export function initViewModeUI() {
     });
   }
 
-  applyViewMode(getViewMode());
+  const currentMode = getViewMode();
+  applyViewMode(currentMode);
+  updateMobileDropdown(currentMode);
 }

@@ -19,59 +19,115 @@
   </head>
   <body>
     <div class="container py-5">
-      <header class="mb-4 d-flex justify-content-between align-items-start">
-        <div>
-          <h1 class="display-5 fw-bold">Zcash Wallet Tools</h1>
-          <p class="lead text-muted">
-            Privacy-preserving Zcash tools running entirely in your browser.
-          </p>
-        </div>
-        <div class="d-flex gap-2 align-items-center">
-          <div class="btn-group" role="group" aria-label="View mode">
-            <input
-              type="radio"
-              class="btn-check"
-              name="viewMode"
-              id="viewSimple"
-              value="simple"
-              autocomplete="off"
-            />
-            <label class="btn btn-outline-primary btn-sm" for="viewSimple">
-              <i class="bi bi-phone me-1"></i>Simple
-            </label>
-
-            <input
-              type="radio"
-              class="btn-check"
-              name="viewMode"
-              id="viewAccountant"
-              value="accountant"
-              autocomplete="off"
-            />
-            <label class="btn btn-outline-primary btn-sm" for="viewAccountant">
-              <i class="bi bi-journal-text me-1"></i>Accountant
-            </label>
-
-            <input
-              type="radio"
-              class="btn-check"
-              name="viewMode"
-              id="viewAdmin"
-              value="admin"
-              autocomplete="off"
-              checked
-            />
-            <label class="btn btn-outline-primary btn-sm" for="viewAdmin">
-              <i class="bi bi-gear me-1"></i>Admin
-            </label>
+      <header class="mb-4">
+        <div
+          class="d-flex justify-content-between align-items-start flex-wrap gap-3"
+        >
+          <div class="header-title">
+            <h1 class="display-5 fw-bold mb-1">Zcash Wallet Tools</h1>
+            <p class="lead text-muted mb-0 d-none d-sm-block">
+              Privacy-preserving Zcash tools running entirely in your browser.
+            </p>
           </div>
-          <button
-            class="theme-toggle btn btn-outline-secondary"
-            id="themeToggle"
-            title="Toggle theme"
-          >
-            <i class="bi bi-moon-fill" id="themeIcon"></i>
-          </button>
+          <div class="d-flex gap-2 align-items-center header-controls">
+            <!-- Desktop: Button group -->
+            <div
+              class="btn-group d-none d-md-flex"
+              role="group"
+              aria-label="View mode"
+            >
+              <input
+                type="radio"
+                class="btn-check"
+                name="viewMode"
+                id="viewSimple"
+                value="simple"
+                autocomplete="off"
+              />
+              <label class="btn btn-outline-primary btn-sm" for="viewSimple">
+                <i class="bi bi-phone me-1"></i>Simple
+              </label>
+
+              <input
+                type="radio"
+                class="btn-check"
+                name="viewMode"
+                id="viewAccountant"
+                value="accountant"
+                autocomplete="off"
+              />
+              <label
+                class="btn btn-outline-primary btn-sm"
+                for="viewAccountant"
+              >
+                <i class="bi bi-journal-text me-1"></i>Accountant
+              </label>
+
+              <input
+                type="radio"
+                class="btn-check"
+                name="viewMode"
+                id="viewAdmin"
+                value="admin"
+                autocomplete="off"
+                checked
+              />
+              <label class="btn btn-outline-primary btn-sm" for="viewAdmin">
+                <i class="bi bi-gear me-1"></i>Admin
+              </label>
+            </div>
+
+            <!-- Mobile: Dropdown -->
+            <div class="dropdown d-md-none">
+              <button
+                class="btn btn-outline-primary btn-sm dropdown-toggle"
+                type="button"
+                id="viewModeDropdown"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+              >
+                <i class="bi bi-gear me-1" id="viewModeDropdownIcon"></i>
+                <span id="viewModeDropdownText">Admin</span>
+              </button>
+              <ul class="dropdown-menu" aria-labelledby="viewModeDropdown">
+                <li>
+                  <button
+                    class="dropdown-item"
+                    type="button"
+                    data-view-mode="simple"
+                  >
+                    <i class="bi bi-phone me-2"></i>Simple
+                  </button>
+                </li>
+                <li>
+                  <button
+                    class="dropdown-item"
+                    type="button"
+                    data-view-mode="accountant"
+                  >
+                    <i class="bi bi-journal-text me-2"></i>Accountant
+                  </button>
+                </li>
+                <li>
+                  <button
+                    class="dropdown-item"
+                    type="button"
+                    data-view-mode="admin"
+                  >
+                    <i class="bi bi-gear me-2"></i>Admin
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <button
+              class="theme-toggle btn btn-outline-secondary btn-sm"
+              id="themeToggle"
+              title="Toggle theme"
+            >
+              <i class="bi bi-moon-fill" id="themeIcon"></i>
+            </button>
+          </div>
         </div>
       </header>
 
