@@ -11,7 +11,7 @@ import { broadcastTransaction } from "./rpc.js";
 
 // Get current view mode
 export function getViewMode() {
-  return localStorage.getItem(STORAGE_KEYS.viewMode) || VIEW_MODES.admin;
+  return localStorage.getItem(STORAGE_KEYS.viewMode) || VIEW_MODES.simple;
 }
 
 // Set view mode
