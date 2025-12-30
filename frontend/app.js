@@ -2124,6 +2124,398 @@ function setAddressLoading(loading) {
   }
 }
 
+// ===========================================================================
+// Send Transaction
+// ===========================================================================
+
+let currentSendUtxos = [];
+
+function initSendUI() {
+  const signBtn = document.getElementById("signTxBtn");
+  const walletSelect = document.getElementById("sendWalletSelect");
+  const goToWalletTab = document.getElementById("goToWalletTabFromSend");
+  const copySendTxidBtn = document.getElementById("copySendTxidBtn");
+  const copySendTxHexBtn = document.getElementById("copySendTxHexBtn");
+
+  if (signBtn) {
+    signBtn.addEventListener("click", signTransaction);
+  }
+  if (walletSelect) {
+    walletSelect.addEventListener("change", () => {
+      updateSendUtxosDisplay();
+    });
+    // Populate wallet selector when tab is shown
+    document
+      .getElementById("send-tab")
+      ?.addEventListener("shown.bs.tab", populateSendWallets);
+  }
+  if (goToWalletTab) {
+    goToWalletTab.addEventListener("click", (e) => {
+      e.preventDefault();
+      const walletTab = document.getElementById("wallet-tab");
+      if (walletTab) {
+        walletTab.click();
+      }
+    });
+  }
+  if (copySendTxidBtn) {
+    copySendTxidBtn.addEventListener("click", () => {
+      copyToClipboard("sendTxid", copySendTxidBtn);
+    });
+  }
+  if (copySendTxHexBtn) {
+    copySendTxHexBtn.addEventListener("click", () => {
+      const textarea = document.getElementById("sendTxHex");
+      if (textarea) {
+        navigator.clipboard
+          .writeText(textarea.value)
+          .then(() => {
+            const originalHtml = copySendTxHexBtn.innerHTML;
+            copySendTxHexBtn.innerHTML =
+              '<i class="bi bi-check me-1"></i> Copied!';
+            copySendTxHexBtn.classList.add("btn-success");
+            copySendTxHexBtn.classList.remove("btn-outline-secondary");
+
+            setTimeout(() => {
+              copySendTxHexBtn.innerHTML = originalHtml;
+              copySendTxHexBtn.classList.remove("btn-success");
+              copySendTxHexBtn.classList.add("btn-outline-secondary");
+            }, 2000);
+          })
+          .catch((err) => {
+            console.error("Failed to copy:", err);
+          });
+      }
+    });
+  }
+
+  // Initial population
+  populateSendWallets();
+}
+
+function populateSendWallets() {
+  const walletSelect = document.getElementById("sendWalletSelect");
+  const noWalletsWarning = document.getElementById("sendNoWalletsWarning");
+  if (!walletSelect) return;
+
+  const wallets = loadWallets();
+
+  walletSelect.innerHTML = '<option value="">-- Select a wallet --</option>';
+
+  for (const wallet of wallets) {
+    const option = document.createElement("option");
+    option.value = wallet.id;
+    option.textContent = `${wallet.alias} (${wallet.network})`;
+    walletSelect.appendChild(option);
+  }
+
+  // Show/hide no wallets warning
+  if (noWalletsWarning) {
+    if (wallets.length === 0) {
+      noWalletsWarning.classList.remove("d-none");
+    } else {
+      noWalletsWarning.classList.add("d-none");
+    }
+  }
+}
+
+function updateSendUtxosDisplay() {
+  const walletSelect = document.getElementById("sendWalletSelect");
+  const utxosDiv = document.getElementById("sendUtxosDisplay");
+
+  if (!utxosDiv) return;
+
+  const walletId = walletSelect?.value;
+
+  if (!walletId) {
+    currentSendUtxos = [];
+    utxosDiv.innerHTML = `
+      <div class="text-muted text-center py-4">
+        <i class="bi bi-inbox fs-1"></i>
+        <p class="mt-2 mb-0">Select a wallet to view available UTXOs.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const wallet = getWallet(walletId);
+  if (!wallet) {
+    currentSendUtxos = [];
+    utxosDiv.innerHTML = `
+      <div class="text-danger text-center py-4">
+        <i class="bi bi-exclamation-triangle fs-1"></i>
+        <p class="mt-2 mb-0">Wallet not found.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!wasmModule) {
+    utxosDiv.innerHTML = `
+      <div class="text-danger text-center py-4">
+        <p class="mb-0">WASM module not loaded.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Get all notes and filter for transparent UTXOs for this wallet
+  const notes = getAllNotes();
+  const notesJson = JSON.stringify(notes);
+
+  // Use WASM binding to get transparent UTXOs
+  const utxosResultJson = wasmModule.get_transparent_utxos(notesJson);
+  let utxosResult;
+  try {
+    utxosResult = JSON.parse(utxosResultJson);
+  } catch {
+    utxosDiv.innerHTML = `
+      <div class="text-danger text-center py-4">
+        <p class="mb-0">Failed to parse UTXOs.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!utxosResult.success) {
+    utxosDiv.innerHTML = `
+      <div class="text-danger text-center py-4">
+        <p class="mb-0">${escapeHtml(utxosResult.error || "Failed to get UTXOs")}</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Filter UTXOs to only those belonging to wallet's known addresses
+  const knownAddresses = new Set(wallet.transparent_addresses || []);
+  const utxos = (utxosResult.utxos || []).filter(
+    (utxo) => utxo.address && knownAddresses.has(utxo.address)
+  );
+
+  currentSendUtxos = utxos;
+
+  if (utxos.length === 0) {
+    utxosDiv.innerHTML = `
+      <div class="text-muted text-center py-4">
+        <i class="bi bi-inbox fs-1"></i>
+        <p class="mt-2 mb-0">No transparent UTXOs found for this wallet.</p>
+        <p class="small">Scan transactions in the Scanner tab to track UTXOs.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Calculate total balance
+  let totalBalance = 0;
+  for (const utxo of utxos) {
+    totalBalance += utxo.value || 0;
+  }
+
+  let html = `
+    <div class="mb-3">
+      <strong>Total Available:</strong>
+      <span class="text-success">${formatZatoshi(totalBalance)} ZEC</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Outpoint</th>
+            <th>Value</th>
+            <th>Address</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  for (const utxo of utxos) {
+    const shortTxid = utxo.txid ? utxo.txid.slice(0, 8) + "..." : "?";
+    const shortAddress = utxo.address ? utxo.address.slice(0, 10) + "..." : "-";
+
+    html += `
+      <tr>
+        <td class="mono small">${escapeHtml(shortTxid)}:${utxo.output_index}</td>
+        <td>${formatZatoshi(utxo.value || 0)} ZEC</td>
+        <td class="mono small" title="${escapeHtml(utxo.address || "")}">${escapeHtml(shortAddress)}</td>
+      </tr>
+    `;
+  }
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+    <p class="small text-muted mb-0">${utxos.length} UTXO(s) available</p>
+  `;
+
+  utxosDiv.innerHTML = html;
+}
+
+async function signTransaction() {
+  const walletSelect = document.getElementById("sendWalletSelect");
+  const recipientInput = document.getElementById("sendRecipient");
+  const amountInput = document.getElementById("sendAmount");
+  const feeInput = document.getElementById("sendFee");
+  const expiryInput = document.getElementById("sendExpiryHeight");
+
+  const walletId = walletSelect?.value;
+  const recipientAddress = recipientInput?.value.trim();
+  const amountZec = parseFloat(amountInput?.value || "0");
+  const fee = parseInt(feeInput?.value || "10000", 10);
+  const expiryHeight = parseInt(expiryInput?.value || "0", 10);
+
+  // Validate inputs
+  if (!walletId) {
+    showSendError("Please select a wallet.");
+    return;
+  }
+
+  const wallet = getWallet(walletId);
+  if (!wallet) {
+    showSendError("Selected wallet not found.");
+    return;
+  }
+
+  if (!wallet.seed_phrase) {
+    showSendError("Wallet has no seed phrase. Cannot sign transactions.");
+    return;
+  }
+
+  if (!recipientAddress) {
+    showSendError("Please enter a recipient address.");
+    return;
+  }
+
+  if (amountZec <= 0) {
+    showSendError("Please enter a valid amount.");
+    return;
+  }
+
+  // Convert ZEC to zatoshis
+  const amountZatoshi = Math.round(amountZec * 100000000);
+
+  if (fee < 1000) {
+    showSendError("Fee must be at least 1000 zatoshis.");
+    return;
+  }
+
+  if (currentSendUtxos.length === 0) {
+    showSendError("No UTXOs available. Scan transactions first.");
+    return;
+  }
+
+  // Check if we have enough balance
+  let totalAvailable = 0;
+  for (const utxo of currentSendUtxos) {
+    totalAvailable += utxo.value || 0;
+  }
+
+  if (totalAvailable < amountZatoshi + fee) {
+    showSendError(
+      `Insufficient funds. Available: ${formatZatoshi(totalAvailable)} ZEC, ` +
+        `Required: ${formatZatoshi(amountZatoshi + fee)} ZEC (including fee).`
+    );
+    return;
+  }
+
+  if (!wasmModule) {
+    showSendError("WASM module not loaded. Please refresh the page.");
+    return;
+  }
+
+  setSendLoading(true);
+  hideSendError();
+
+  try {
+    // Prepare UTXOs as JSON
+    const utxosJson = JSON.stringify(currentSendUtxos);
+
+    // Prepare recipients as JSON
+    const recipients = [
+      {
+        address: recipientAddress,
+        amount: amountZatoshi,
+      },
+    ];
+    const recipientsJson = JSON.stringify(recipients);
+
+    // Sign the transaction
+    const resultJson = wasmModule.sign_transparent_transaction(
+      wallet.seed_phrase,
+      wallet.network || "testnet",
+      wallet.account_index || 0,
+      utxosJson,
+      recipientsJson,
+      BigInt(fee),
+      expiryHeight
+    );
+
+    const result = JSON.parse(resultJson);
+
+    if (result.success) {
+      displaySendResult(result);
+    } else {
+      showSendError(result.error || "Failed to sign transaction.");
+    }
+  } catch (error) {
+    console.error("Transaction signing error:", error);
+    showSendError(`Error: ${error.message}`);
+  } finally {
+    setSendLoading(false);
+  }
+}
+
+function displaySendResult(result) {
+  const resultDiv = document.getElementById("sendResult");
+  const placeholderDiv = document.getElementById("sendPlaceholder");
+
+  if (placeholderDiv) placeholderDiv.classList.add("d-none");
+  if (resultDiv) resultDiv.classList.remove("d-none");
+
+  const txidDisplay = document.getElementById("sendTxid");
+  const txHexDisplay = document.getElementById("sendTxHex");
+
+  if (txidDisplay) {
+    txidDisplay.textContent = result.txid || "";
+  }
+  if (txHexDisplay) {
+    txHexDisplay.value = result.raw_tx || "";
+  }
+}
+
+function showSendError(message) {
+  const errorDiv = document.getElementById("sendError");
+  if (errorDiv) {
+    errorDiv.classList.remove("d-none");
+    errorDiv.textContent = message;
+  }
+}
+
+function hideSendError() {
+  const errorDiv = document.getElementById("sendError");
+  if (errorDiv) {
+    errorDiv.classList.add("d-none");
+  }
+}
+
+function setSendLoading(loading) {
+  const btn = document.getElementById("signTxBtn");
+  if (!btn) return;
+
+  const spinner = btn.querySelector(".loading-spinner");
+  const text = btn.querySelector(".btn-text");
+
+  if (loading) {
+    btn.disabled = true;
+    if (spinner) spinner.classList.remove("d-none");
+    if (text) text.classList.add("d-none");
+  } else {
+    btn.disabled = false;
+    if (spinner) spinner.classList.add("d-none");
+    if (text) text.classList.remove("d-none");
+  }
+}
+
 // Initialize on page load
 document.addEventListener("DOMContentLoaded", async () => {
   // Set initial theme
@@ -2140,5 +2532,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   initWalletUI();
   initScannerUI();
   initAddressViewerUI();
+  initSendUI();
   await initWasm();
 });

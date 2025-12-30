@@ -84,6 +84,18 @@
             <i class="bi bi-card-list me-1"></i> Address Viewer
           </button>
         </li>
+        <li class="nav-item" role="presentation">
+          <button
+            class="nav-link"
+            id="send-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#send-pane"
+            type="button"
+            role="tab"
+          >
+            <i class="bi bi-send me-1"></i> Send
+          </button>
+        </li>
       </ul>
 
       <div class="tab-content" id="mainTabContent">
@@ -857,6 +869,234 @@
                       </p>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-pane fade" id="send-pane" role="tabpanel">
+          <div class="row">
+            <div class="col-lg-6">
+              <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                  <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-send me-1"></i> Send Transparent Transaction
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <p class="text-muted small mb-3">
+                    Sign a transparent (t-address) transaction. Requires UTXOs
+                    from scanned transactions. The signed transaction hex can be
+                    broadcast using an external tool or RPC.
+                  </p>
+
+                  <div class="mb-3">
+                    <label for="sendWalletSelect" class="form-label"
+                      >Select Wallet</label
+                    >
+                    <select class="form-select" id="sendWalletSelect">
+                      <option value="">-- Select a wallet --</option>
+                    </select>
+                    <div
+                      id="sendNoWalletsWarning"
+                      class="alert alert-warning mt-2 d-none"
+                    >
+                      <i class="bi bi-exclamation-triangle me-1"></i>
+                      No wallets saved. Please
+                      <a href="#" class="alert-link" id="goToWalletTabFromSend"
+                        >generate or restore a wallet</a
+                      >
+                      first.
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <label for="sendRecipient" class="form-label"
+                      >Recipient Address</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control mono"
+                      id="sendRecipient"
+                      placeholder="t1... or u1..."
+                    />
+                    <div class="form-text">
+                      Enter a transparent (t-address) or unified address.
+                    </div>
+                  </div>
+
+                  <div class="row mb-3">
+                    <div class="col-6">
+                      <label for="sendAmount" class="form-label"
+                        >Amount (ZEC)</label
+                      >
+                      <input
+                        type="number"
+                        class="form-control"
+                        id="sendAmount"
+                        placeholder="0.0"
+                        step="0.00000001"
+                        min="0"
+                      />
+                    </div>
+                    <div class="col-6">
+                      <label for="sendFee" class="form-label"
+                        >Fee (zatoshis)</label
+                      >
+                      <input
+                        type="number"
+                        class="form-control"
+                        id="sendFee"
+                        value="10000"
+                        min="1000"
+                      />
+                      <div class="form-text">Default: 10000 (0.0001 ZEC)</div>
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <label for="sendExpiryHeight" class="form-label"
+                      >Expiry Height (optional)</label
+                    >
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="sendExpiryHeight"
+                      placeholder="0 for no expiry"
+                      value="0"
+                      min="0"
+                    />
+                    <div class="form-text">
+                      Transaction expires after this block height. Use 0 for no
+                      expiry.
+                    </div>
+                  </div>
+
+                  <div id="sendError" class="alert alert-danger d-none"></div>
+
+                  <button
+                    type="button"
+                    class="btn btn-primary w-100"
+                    id="signTxBtn"
+                  >
+                    <span class="btn-text"
+                      ><i class="bi bi-pen me-1"></i> Sign Transaction</span
+                    >
+                    <span
+                      class="loading-spinner spinner-border spinner-border-sm d-none"
+                      role="status"
+                    >
+                      <span class="visually-hidden">Loading...</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="card border-warning">
+                <div class="card-header bg-warning bg-opacity-10">
+                  <h6 class="mb-0 fw-semibold text-warning">
+                    <i class="bi bi-exclamation-triangle me-1"></i> Important
+                  </h6>
+                </div>
+                <div class="card-body small">
+                  <p class="mb-2">
+                    <strong>Transparent Only:</strong> This feature only
+                    supports spending from transparent addresses (t-addresses).
+                    Shielded spending is not yet supported.
+                  </p>
+                  <p class="mb-2">
+                    <strong>Scan First:</strong> You must scan transactions
+                    containing your UTXOs before sending. Use the Scanner tab to
+                    track your notes.
+                  </p>
+                  <p class="mb-0">
+                    <strong>Broadcast Separately:</strong> The signed
+                    transaction hex must be broadcast using an RPC endpoint or
+                    external tool like
+                    <code>zcash-cli sendrawtransaction</code>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-6">
+              <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                  <h6 class="mb-0 fw-semibold">
+                    <i class="bi bi-wallet2 me-1"></i> Available UTXOs
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <div id="sendUtxosDisplay">
+                    <div class="text-muted text-center py-4">
+                      <i class="bi bi-inbox fs-1"></i>
+                      <p class="mt-2 mb-0">
+                        Select a wallet to view available UTXOs.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="sendResult" class="d-none">
+                <div class="card shadow-sm border-success">
+                  <div class="card-header bg-success bg-opacity-10">
+                    <h6 class="mb-0 fw-semibold text-success">
+                      <i class="bi bi-check-circle me-1"></i> Transaction Signed
+                    </h6>
+                  </div>
+                  <div class="card-body">
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold"
+                        >Transaction ID</label
+                      >
+                      <div
+                        id="sendTxid"
+                        class="mono small bg-light p-2 rounded text-break"
+                      ></div>
+                      <button
+                        class="btn btn-sm btn-outline-secondary mt-2"
+                        id="copySendTxidBtn"
+                      >
+                        <i class="bi bi-clipboard me-1"></i> Copy TxID
+                      </button>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold"
+                        >Signed Transaction Hex</label
+                      >
+                      <textarea
+                        id="sendTxHex"
+                        class="form-control mono small"
+                        rows="4"
+                        readonly
+                      ></textarea>
+                      <button
+                        class="btn btn-sm btn-outline-secondary mt-2"
+                        id="copySendTxHexBtn"
+                      >
+                        <i class="bi bi-clipboard me-1"></i> Copy Hex
+                      </button>
+                    </div>
+                    <div class="alert alert-info mb-0">
+                      <i class="bi bi-info-circle me-1"></i>
+                      <strong>Next step:</strong> Broadcast this transaction
+                      using
+                      <code>zcash-cli sendrawtransaction &lt;hex&gt;</code>
+                      or an RPC endpoint.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="sendPlaceholder" class="card border-secondary bg-light">
+                <div class="card-body text-center text-muted py-5">
+                  <i class="bi bi-send fs-1"></i>
+                  <p class="mt-2 mb-0">
+                    Fill in the form and click "Sign Transaction" to create a
+                    signed transaction.
+                  </p>
                 </div>
               </div>
             </div>
