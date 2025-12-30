@@ -87,7 +87,7 @@ Browser                                        Zcash Node
 
 ### Formatting
 
-- Run `make format` before committing
+- **Always run `make format` before every commit and push**
 - Rust: `cargo +nightly fmt`
 - JS/HTML: `prettier --write`
 - Sass: indented syntax has strict formatting rules (no automated formatter)
