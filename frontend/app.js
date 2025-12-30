@@ -695,7 +695,7 @@ function addNote(note, txid, walletId) {
 function markNotesSpent(nullifiers, spendingTxid, spentAtHeight = null) {
   if (!wasmModule) {
     console.error("WASM module not loaded");
-    return { marked_count: 0, has_unmatched: false };
+    return { marked_count: 0, has_unmatched: false, notes: null };
   }
 
   const notes = loadNotes();
@@ -711,28 +711,31 @@ function markNotesSpent(nullifiers, spendingTxid, spentAtHeight = null) {
   const result = JSON.parse(resultJson);
 
   if (result.success) {
-    saveNotes(result.notes);
+    // Don't save notes here - let the caller decide after checking for unmatched
     return {
       marked_count: result.marked_count || 0,
       has_unmatched: result.has_unmatched || false,
       unmatched_nullifiers: result.unmatched_nullifiers || [],
+      notes: result.notes,
     };
   }
   console.error("Failed to mark notes spent:", result.error);
-  return { marked_count: 0, has_unmatched: false };
+  return { marked_count: 0, has_unmatched: false, notes: null };
 }
 
 function markTransparentSpent(
   transparentSpends,
   spendingTxid,
-  spentAtHeight = null
+  spentAtHeight = null,
+  notesInput = null
 ) {
   if (!wasmModule) {
     console.error("WASM module not loaded");
-    return { marked_count: 0, has_unmatched: false };
+    return { marked_count: 0, has_unmatched: false, notes: null };
   }
 
-  const notes = loadNotes();
+  // Use provided notes or load from storage
+  const notes = notesInput || loadNotes();
   const notesJson = JSON.stringify(notes);
   const spendsJson = JSON.stringify(transparentSpends);
 
@@ -745,15 +748,16 @@ function markTransparentSpent(
   const result = JSON.parse(resultJson);
 
   if (result.success) {
-    saveNotes(result.notes);
+    // Don't save notes here - let the caller decide after checking for unmatched
     return {
       marked_count: result.marked_count || 0,
       has_unmatched: result.has_unmatched || false,
       unmatched_transparent: result.unmatched_transparent || [],
+      notes: result.notes,
     };
   }
   console.error("Failed to mark transparent spent:", result.error);
-  return { marked_count: 0, has_unmatched: false };
+  return { marked_count: 0, has_unmatched: false, notes: null };
 }
 
 function getUnspentNotes() {
@@ -1364,24 +1368,64 @@ function processScanResult(
     }
   }
 
-  // Mark spent shielded notes by nullifiers
+  // Mark spent shielded notes by nullifiers (don't save yet)
   const shieldedResult = markNotesSpent(
     scanResult.spent_nullifiers,
     scanResult.txid,
     blockHeight
   );
 
-  // Mark spent transparent outputs by prevout references
+  // Mark spent transparent outputs by prevout references (use notes from shielded result)
   const transparentResult = markTransparentSpent(
     scanResult.transparent_spends || [],
     scanResult.txid,
-    blockHeight
+    blockHeight,
+    shieldedResult.notes // Chain the notes from the previous operation
   );
 
   const totalSpent =
     shieldedResult.marked_count + transparentResult.marked_count;
   const hasUnmatched =
     shieldedResult.has_unmatched || transparentResult.has_unmatched;
+
+  // Show results div
+  const resultsDiv = document.getElementById("scanResults");
+  const placeholderDiv = document.getElementById("scanPlaceholder");
+
+  if (placeholderDiv) placeholderDiv.classList.add("d-none");
+  if (resultsDiv) resultsDiv.classList.remove("d-none");
+
+  const summaryDiv = document.getElementById("scanSummary");
+
+  // Fail if there are unmatched inputs - transactions must be scanned in order
+  if (hasUnmatched) {
+    const unmatchedNullifiers = shieldedResult.unmatched_nullifiers || [];
+    const unmatchedTransparent = transparentResult.unmatched_transparent || [];
+
+    // Build list of missing input txids for the error message
+    const missingTxids = unmatchedTransparent.map((s) => s.prevout_txid);
+
+    if (summaryDiv) {
+      summaryDiv.innerHTML = `
+        <div class="alert alert-danger mb-3">
+          <i class="bi bi-x-circle-fill me-2"></i>
+          <strong>Scan Failed: Missing Input Transactions</strong><br>
+          This transaction spends ${unmatchedNullifiers.length + unmatchedTransparent.length} input(s)
+          from transactions that have not been scanned yet.<br><br>
+          <strong>You must scan the input transactions first.</strong><br>
+          ${missingTxids.length > 0 ? `<br>Missing transaction(s):<br><code>${missingTxids.join("</code><br><code>")}</code>` : ""}
+          ${unmatchedNullifiers.length > 0 ? `<br><small>Unmatched shielded nullifiers: ${unmatchedNullifiers.length}</small>` : ""}
+        </div>
+      `;
+    }
+    // Don't save notes, update displays, or create ledger entry - the scan failed
+    return;
+  }
+
+  // All inputs matched - now save the updated notes
+  if (transparentResult.notes) {
+    saveNotes(transparentResult.notes);
+  }
 
   // Create ledger entry from scan result
   const ledgerEntry = createLedgerEntry(scanResult, walletId);
@@ -1395,35 +1439,7 @@ function processScanResult(
   updateNotesDisplay();
   updateLedgerDisplay();
 
-  // Show results
-  const resultsDiv = document.getElementById("scanResults");
-  const placeholderDiv = document.getElementById("scanPlaceholder");
-
-  if (placeholderDiv) placeholderDiv.classList.add("d-none");
-  if (resultsDiv) resultsDiv.classList.remove("d-none");
-
-  const summaryDiv = document.getElementById("scanSummary");
   if (summaryDiv) {
-    // Build warning message for unmatched spends
-    let unmatchedWarning = "";
-    if (hasUnmatched) {
-      const unmatchedNullifiers = shieldedResult.unmatched_nullifiers || [];
-      const unmatchedTransparent =
-        transparentResult.unmatched_transparent || [];
-      unmatchedWarning = `
-        <div class="alert alert-warning mt-3">
-          <i class="bi bi-exclamation-triangle-fill me-2"></i>
-          <strong>Warning: Unmatched inputs detected</strong><br>
-          This transaction spends ${unmatchedNullifiers.length + unmatchedTransparent.length} input(s)
-          that were not found in your tracked notes. This usually means the transactions were
-          scanned out of order. Please scan the earlier transaction(s) first to ensure
-          accurate balance tracking.
-          ${unmatchedNullifiers.length > 0 ? `<br><small>Unmatched nullifiers: ${unmatchedNullifiers.length}</small>` : ""}
-          ${unmatchedTransparent.length > 0 ? `<br><small>Unmatched transparent inputs: ${unmatchedTransparent.map((s) => s.prevout_txid.slice(0, 8) + "...").join(", ")}</small>` : ""}
-        </div>
-      `;
-    }
-
     summaryDiv.innerHTML = `
       <div class="alert alert-success mb-3">
         <strong>Scan Complete</strong><br>
@@ -1435,7 +1451,6 @@ function processScanResult(
         Ledger entry: ${ledgerUpdated ? "Created" : ledgerEntry ? "Updated" : "Failed"}<br>
         Notes marked spent: ${totalSpent}
       </div>
-      ${unmatchedWarning}
     `;
   }
 }
