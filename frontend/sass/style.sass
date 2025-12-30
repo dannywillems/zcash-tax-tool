@@ -196,6 +196,54 @@ body
 .text-muted
   color: var(--muted-color) !important
 
+// Tables - theme aware
+.table
+  --bs-table-bg: var(--card-bg)
+  --bs-table-color: var(--body-color)
+  --bs-table-border-color: var(--card-border-color)
+  --bs-table-striped-bg: var(--hover-bg)
+  --bs-table-hover-bg: var(--hover-bg)
+
+  thead
+    color: var(--body-color)
+
+  tbody
+    color: var(--body-color)
+
+// Table row variants for dark mode
+[data-theme="dark"]
+  .table-success
+    --bs-table-bg: rgba(25, 135, 84, 0.2)
+    --bs-table-color: #75b798
+    --bs-table-border-color: rgba(25, 135, 84, 0.3)
+
+  .table-danger
+    --bs-table-bg: rgba(220, 53, 69, 0.2)
+    --bs-table-color: #ea868f
+    --bs-table-border-color: rgba(220, 53, 69, 0.3)
+
+  .table-warning
+    --bs-table-bg: rgba(255, 193, 7, 0.2)
+    --bs-table-color: #ffda6a
+    --bs-table-border-color: rgba(255, 193, 7, 0.3)
+
+@media (prefers-color-scheme: dark)
+  :root:not([data-theme="light"])
+    .table-success
+      --bs-table-bg: rgba(25, 135, 84, 0.2)
+      --bs-table-color: #75b798
+      --bs-table-border-color: rgba(25, 135, 84, 0.3)
+
+    .table-danger
+      --bs-table-bg: rgba(220, 53, 69, 0.2)
+      --bs-table-color: #ea868f
+      --bs-table-border-color: rgba(220, 53, 69, 0.3)
+
+    .table-warning
+      --bs-table-bg: rgba(255, 193, 7, 0.2)
+      --bs-table-color: #ffda6a
+      --bs-table-border-color: rgba(255, 193, 7, 0.3)
+
 // Mobile responsiveness
 @media (max-width: 576px)
   .display-5
