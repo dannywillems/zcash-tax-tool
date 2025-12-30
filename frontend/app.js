@@ -692,10 +692,10 @@ function addNote(note, txid, walletId) {
   return false;
 }
 
-function markNotesSpent(nullifiers, spendingTxid) {
+function markNotesSpent(nullifiers, spendingTxid, spentAtHeight = null) {
   if (!wasmModule) {
     console.error("WASM module not loaded");
-    return 0;
+    return { marked_count: 0, has_unmatched: false };
   }
 
   const notes = loadNotes();
@@ -705,22 +705,31 @@ function markNotesSpent(nullifiers, spendingTxid) {
   const resultJson = wasmModule.mark_notes_spent(
     notesJson,
     nullifiersJson,
-    spendingTxid
+    spendingTxid,
+    spentAtHeight
   );
   const result = JSON.parse(resultJson);
 
   if (result.success) {
     saveNotes(result.notes);
-    return result.marked_count;
+    return {
+      marked_count: result.marked_count || 0,
+      has_unmatched: result.has_unmatched || false,
+      unmatched_nullifiers: result.unmatched_nullifiers || [],
+    };
   }
   console.error("Failed to mark notes spent:", result.error);
-  return 0;
+  return { marked_count: 0, has_unmatched: false };
 }
 
-function markTransparentSpent(transparentSpends, spendingTxid) {
+function markTransparentSpent(
+  transparentSpends,
+  spendingTxid,
+  spentAtHeight = null
+) {
   if (!wasmModule) {
     console.error("WASM module not loaded");
-    return 0;
+    return { marked_count: 0, has_unmatched: false };
   }
 
   const notes = loadNotes();
@@ -730,16 +739,21 @@ function markTransparentSpent(transparentSpends, spendingTxid) {
   const resultJson = wasmModule.mark_transparent_spent(
     notesJson,
     spendsJson,
-    spendingTxid
+    spendingTxid,
+    spentAtHeight
   );
   const result = JSON.parse(resultJson);
 
   if (result.success) {
     saveNotes(result.notes);
-    return result.marked_count;
+    return {
+      marked_count: result.marked_count || 0,
+      has_unmatched: result.has_unmatched || false,
+      unmatched_transparent: result.unmatched_transparent || [],
+    };
   }
   console.error("Failed to mark transparent spent:", result.error);
-  return 0;
+  return { marked_count: 0, has_unmatched: false };
 }
 
 function getUnspentNotes() {
@@ -1293,7 +1307,7 @@ async function scanTransaction() {
           ? [fullWallet.transparent_address]
           : []),
       ];
-      processScanResult(result.result, walletId, knownAddresses);
+      processScanResult(result.result, walletId, knownAddresses, height);
     } else {
       showScanError(result.error || "Failed to scan transaction.");
     }
@@ -1308,7 +1322,8 @@ async function scanTransaction() {
 function processScanResult(
   scanResult,
   walletId,
-  knownTransparentAddresses = []
+  knownTransparentAddresses = [],
+  blockHeight = null
 ) {
   let notesAdded = 0;
   let notesWithValue = 0;
@@ -1350,18 +1365,23 @@ function processScanResult(
   }
 
   // Mark spent shielded notes by nullifiers
-  const shieldedSpent = markNotesSpent(
+  const shieldedResult = markNotesSpent(
     scanResult.spent_nullifiers,
-    scanResult.txid
+    scanResult.txid,
+    blockHeight
   );
 
   // Mark spent transparent outputs by prevout references
-  const transparentSpent = markTransparentSpent(
+  const transparentResult = markTransparentSpent(
     scanResult.transparent_spends || [],
-    scanResult.txid
+    scanResult.txid,
+    blockHeight
   );
 
-  const totalSpent = shieldedSpent + transparentSpent;
+  const totalSpent =
+    shieldedResult.marked_count + transparentResult.marked_count;
+  const hasUnmatched =
+    shieldedResult.has_unmatched || transparentResult.has_unmatched;
 
   // Create ledger entry from scan result
   const ledgerEntry = createLedgerEntry(scanResult, walletId);
@@ -1384,6 +1404,26 @@ function processScanResult(
 
   const summaryDiv = document.getElementById("scanSummary");
   if (summaryDiv) {
+    // Build warning message for unmatched spends
+    let unmatchedWarning = "";
+    if (hasUnmatched) {
+      const unmatchedNullifiers = shieldedResult.unmatched_nullifiers || [];
+      const unmatchedTransparent =
+        transparentResult.unmatched_transparent || [];
+      unmatchedWarning = `
+        <div class="alert alert-warning mt-3">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>
+          <strong>Warning: Unmatched inputs detected</strong><br>
+          This transaction spends ${unmatchedNullifiers.length + unmatchedTransparent.length} input(s)
+          that were not found in your tracked notes. This usually means the transactions were
+          scanned out of order. Please scan the earlier transaction(s) first to ensure
+          accurate balance tracking.
+          ${unmatchedNullifiers.length > 0 ? `<br><small>Unmatched nullifiers: ${unmatchedNullifiers.length}</small>` : ""}
+          ${unmatchedTransparent.length > 0 ? `<br><small>Unmatched transparent inputs: ${unmatchedTransparent.map((s) => s.prevout_txid.slice(0, 8) + "...").join(", ")}</small>` : ""}
+        </div>
+      `;
+    }
+
     summaryDiv.innerHTML = `
       <div class="alert alert-success mb-3">
         <strong>Scan Complete</strong><br>
@@ -1395,6 +1435,7 @@ function processScanResult(
         Ledger entry: ${ledgerUpdated ? "Created" : ledgerEntry ? "Updated" : "Failed"}<br>
         Notes marked spent: ${totalSpent}
       </div>
+      ${unmatchedWarning}
     `;
   }
 }
@@ -2715,6 +2756,12 @@ function initSendUI() {
     });
   }
 
+  // Broadcast button
+  const broadcastBtn = document.getElementById("broadcastTxBtn");
+  if (broadcastBtn) {
+    broadcastBtn.addEventListener("click", broadcastTransaction);
+  }
+
   // Initial population
   populateSendWallets();
 }
@@ -3006,6 +3053,145 @@ function displaySendResult(result) {
   }
   if (txHexDisplay) {
     txHexDisplay.value = result.tx_hex || "";
+  }
+
+  // Populate broadcast RPC select
+  populateBroadcastEndpoints();
+}
+
+function populateBroadcastEndpoints() {
+  const broadcastRpcSelect = document.getElementById("broadcastRpcSelect");
+  if (!broadcastRpcSelect) return;
+
+  const endpoints = loadEndpoints();
+  const selectedUrl = getSelectedEndpoint();
+
+  broadcastRpcSelect.innerHTML =
+    '<option value="">-- Select an endpoint --</option>';
+
+  endpoints.forEach((endpoint) => {
+    const option = document.createElement("option");
+    option.value = endpoint.url;
+    option.textContent = endpoint.name || endpoint.url;
+    if (endpoint.url === selectedUrl) {
+      option.selected = true;
+    }
+    broadcastRpcSelect.appendChild(option);
+  });
+}
+
+async function broadcastTransaction() {
+  const txHexTextarea = document.getElementById("sendTxHex");
+  const broadcastRpcSelect = document.getElementById("broadcastRpcSelect");
+  const resultDiv = document.getElementById("broadcastResult");
+  const broadcastBtn = document.getElementById("broadcastTxBtn");
+
+  if (!txHexTextarea || !broadcastRpcSelect || !resultDiv) return;
+
+  const txHex = txHexTextarea.value.trim();
+  const rpcEndpoint = broadcastRpcSelect.value;
+
+  if (!txHex) {
+    showBroadcastResult("error", "No transaction hex to broadcast.");
+    return;
+  }
+
+  if (!rpcEndpoint) {
+    showBroadcastResult("error", "Please select an RPC endpoint.");
+    return;
+  }
+
+  // Show loading state
+  setBroadcastLoading(true);
+  resultDiv.classList.add("d-none");
+
+  try {
+    const rpcRequest = {
+      jsonrpc: "1.0",
+      id: "zcash-broadcast",
+      method: "sendrawtransaction",
+      params: [txHex],
+    };
+
+    const response = await fetch(rpcEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(rpcRequest),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error("Rate limited - please wait and try again");
+      }
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error.message || "RPC error");
+    }
+
+    // Success - data.result is the txid
+    const txid = data.result;
+    const explorerUrl = getExplorerTxUrl(txid);
+    showBroadcastResult(
+      "success",
+      `Transaction broadcast successfully! ` +
+        `<a href="${explorerUrl}" target="_blank" rel="noopener noreferrer" ` +
+        `class="mono">${truncateMiddle(txid, 8, 4)}</a>`
+    );
+  } catch (error) {
+    console.error("Broadcast error:", error);
+
+    let errorMessage = error.message;
+    if (
+      error.message.includes("Failed to fetch") ||
+      error.message.includes("NetworkError")
+    ) {
+      errorMessage =
+        "Network error. This may be a CORS issue. " +
+        "Try using a local node with CORS enabled.";
+    }
+
+    showBroadcastResult("error", `Broadcast failed: ${errorMessage}`);
+  } finally {
+    setBroadcastLoading(false);
+  }
+}
+
+function showBroadcastResult(type, message) {
+  const resultDiv = document.getElementById("broadcastResult");
+  if (!resultDiv) return;
+
+  resultDiv.classList.remove("d-none", "alert-success", "alert-danger");
+
+  if (type === "success") {
+    resultDiv.classList.add("alert", "alert-success");
+  } else {
+    resultDiv.classList.add("alert", "alert-danger");
+  }
+
+  resultDiv.innerHTML = message;
+}
+
+function setBroadcastLoading(loading) {
+  const btn = document.getElementById("broadcastTxBtn");
+  if (!btn) return;
+
+  const spinner = btn.querySelector(".spinner-border");
+  const text = btn.querySelector(".btn-text");
+
+  if (loading) {
+    btn.disabled = true;
+    if (spinner) spinner.classList.remove("d-none");
+    if (text) text.classList.add("d-none");
+  } else {
+    btn.disabled = false;
+    if (spinner) spinner.classList.add("d-none");
+    if (text) text.classList.remove("d-none");
   }
 }
 

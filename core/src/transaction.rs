@@ -430,8 +430,8 @@ pub fn build_transparent_transaction(
         build_unsigned_transaction(seed_phrase, network, account, utxos, recipients, fee)?;
 
     // Get the consensus branch ID for the network
-    // Use NU6 (latest network upgrade) for mainnet, NU6 for testnet as well
-    let branch_id = BranchId::Nu6;
+    // Use NU6.1 (latest network upgrade as of Nov 2025) for mainnet and testnet
+    let branch_id = BranchId::Nu6_1;
     let lock_time = 0; // No time lock
 
     // Create the unsigned TransactionData with only transparent bundle
@@ -523,7 +523,7 @@ fn serialize_transaction(
         })?;
 
     // Write consensus branch ID
-    let branch_id: u32 = u32::from(BranchId::Nu6);
+    let branch_id: u32 = u32::from(BranchId::Nu6_1);
     bytes
         .write_all(&branch_id.to_le_bytes())
         .map_err(|e| TransactionError::BuildFailed(format!("Failed to write branch id: {}", e)))?;
@@ -778,6 +778,7 @@ mod tests {
             memo: None,
             address: Some("tmXXXYYYZZZ".to_string()),
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
@@ -805,6 +806,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
@@ -828,6 +830,7 @@ mod tests {
                 memo: None,
                 address: Some("tm1".to_string()),
                 spent_txid: None,
+                spent_at_height: None,
                 created_at: "2024-01-01T00:00:00Z".to_string(),
             },
             // Spent transparent - should NOT be included
@@ -843,6 +846,7 @@ mod tests {
                 memo: None,
                 address: Some("tm2".to_string()),
                 spent_txid: Some("spending_tx".to_string()),
+                spent_at_height: Some(100),
                 created_at: "2024-01-01T00:00:00Z".to_string(),
             },
             // Orchard note - should NOT be included
@@ -858,6 +862,7 @@ mod tests {
                 memo: None,
                 address: None,
                 spent_txid: None,
+                spent_at_height: None,
                 created_at: "2024-01-01T00:00:00Z".to_string(),
             },
         ];

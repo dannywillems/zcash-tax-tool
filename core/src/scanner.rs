@@ -53,8 +53,9 @@ pub fn parse_transaction(tx_hex: &str, _network: Network) -> Result<Transaction,
     let tx_bytes = hex::decode(tx_hex.trim())
         .map_err(|e| ScannerError::InvalidTransactionHex(e.to_string()))?;
 
-    // Try parsing with different branch IDs
+    // Try parsing with different branch IDs (newest first)
     let branch_ids = [
+        BranchId::Nu6_1,
         BranchId::Nu6,
         BranchId::Nu5,
         BranchId::Canopy,
@@ -216,8 +217,12 @@ pub fn scan_transaction(
     if let Some(transparent_bundle) = tx.transparent_bundle() {
         for input in transparent_bundle.vin.iter() {
             let prevout = input.prevout();
+            // The prevout hash is in internal byte order (little-endian).
+            // Reverse it to get the display format (big-endian) that matches txid.
+            let mut hash_bytes = prevout.hash().to_vec();
+            hash_bytes.reverse();
             transparent_spends.push(TransparentSpend {
-                prevout_txid: hex::encode(prevout.hash()),
+                prevout_txid: hex::encode(&hash_bytes),
                 prevout_index: prevout.n(),
             });
         }
@@ -502,6 +507,206 @@ mod tests {
             !matching_notes.is_empty(),
             "Should find a transparent output matching the wallet's first address: {}",
             first_transparent_address
+        );
+    }
+
+    /// Test that spending a transparent output is correctly detected.
+    ///
+    /// This test uses two transactions:
+    /// 1. tx_0411ffa7: Receives a transparent output to the wallet
+    /// 2. tx_5aa23ef4: Spends that output
+    ///
+    /// The scanner should detect the spend via transparent_spends matching
+    /// the original prevout reference (txid:vout).
+    ///
+    /// This test mirrors the flow used by the frontend:
+    /// 1. Scan receiving tx -> create StoredNote + LedgerEntry
+    /// 2. Scan spending tx -> mark note as spent + create LedgerEntry
+    /// 3. Verify balance from both note collection and ledger
+    #[test]
+    fn test_scan_detects_transparent_spend() {
+        use crate::types::{LedgerCollection, LedgerEntry, NoteCollection, Pool, StoredNote};
+
+        const WALLET_ID: &str = "test_wallet";
+
+        // Same seed phrase as the receiving test
+        const SEED_PHRASE: &str = "ahead pupil festival wife avoid yellow noodle puzzle pact alone ginger judge safe era spread lawn goat potato punch physical lamp oyster crisp attract";
+
+        // Load the two transaction hexes
+        const RECEIVING_TX_HEX: &str = include_str!("testdata/tx_0411ffa7.hex");
+        const SPENDING_TX_HEX: &str = include_str!("testdata/tx_5aa23ef4.hex");
+
+        // Restore the wallet
+        let wallet = crate::wallet::restore_wallet(
+            SEED_PHRASE,
+            Network::TestNetwork,
+            0, // account index
+            0, // address index
+        )
+        .expect("Failed to restore wallet");
+
+        // Initialize collections (like frontend's localStorage)
+        let mut note_collection = NoteCollection::new();
+        let mut ledger_collection = LedgerCollection::default();
+
+        // ========================================================
+        // Step 1: Scan the receiving transaction
+        // ========================================================
+        let receive_result = scan_transaction_hex(
+            RECEIVING_TX_HEX,
+            &wallet.unified_full_viewing_key,
+            Network::TestNetwork,
+            None,
+        )
+        .expect("Receiving tx scan should succeed");
+
+        // Verify we found a transparent output
+        let transparent_notes: Vec<_> = receive_result
+            .notes
+            .iter()
+            .filter(|n| n.pool == Pool::Transparent && n.value > 0)
+            .collect();
+
+        assert!(
+            !transparent_notes.is_empty(),
+            "Should find transparent output in receiving tx"
+        );
+
+        // Add notes to collection (like frontend's addNote)
+        let received_note = &transparent_notes[0];
+        let timestamp = "2024-01-01T00:00:00Z";
+        let stored_note = StoredNote::from_scanned_note(
+            received_note,
+            &receive_result.txid,
+            WALLET_ID,
+            timestamp,
+        );
+        note_collection.add_or_update(stored_note.clone());
+
+        // Create ledger entry for receiving transaction (like frontend's createLedgerEntry)
+        let receive_ledger = LedgerEntry::from_scan_result(
+            &receive_result,
+            WALLET_ID,
+            vec![stored_note.id.clone()], // received note IDs
+            vec![],                       // no spent notes
+            &[],                          // no spent values
+            timestamp,
+        );
+        ledger_collection.add_or_update(receive_ledger);
+
+        // Verify initial state
+        let initial_balance = note_collection.total_balance();
+        let ledger_balance = ledger_collection.compute_balance(WALLET_ID);
+        assert_eq!(
+            initial_balance, received_note.value,
+            "Initial note balance should equal received amount"
+        );
+        assert!(ledger_balance > 0, "Ledger should show positive balance");
+
+        // ========================================================
+        // Step 2: Scan the spending transaction
+        // ========================================================
+        let spend_result = scan_transaction_hex(
+            SPENDING_TX_HEX,
+            &wallet.unified_full_viewing_key,
+            Network::TestNetwork,
+            None,
+        )
+        .expect("Spending tx scan should succeed");
+
+        // Verify the txid
+        assert_eq!(
+            spend_result.txid,
+            "5aa23ef474d119dc0262b1a350b00cf4d806ee72036c460f6bcf8252da96695f"
+        );
+
+        // Verify transparent_spends contains the prevout reference
+        assert!(
+            !spend_result.transparent_spends.is_empty(),
+            "Spending tx should have transparent_spends"
+        );
+
+        // Find the spend that matches our received note
+        let matching_spend = spend_result
+            .transparent_spends
+            .iter()
+            .find(|s| s.prevout_txid == receive_result.txid && s.prevout_index == 0);
+
+        assert!(
+            matching_spend.is_some(),
+            "Should find spend matching our received output. Spends: {:?}",
+            spend_result.transparent_spends
+        );
+
+        // Mark notes as spent (like frontend's markTransparentSpent)
+        let mark_result = note_collection.mark_spent_by_transparent(
+            &spend_result.transparent_spends,
+            &spend_result.txid,
+            Some(3760288), // block height from issue
+        );
+        assert_eq!(
+            mark_result.marked_count, 1,
+            "Should mark exactly one note as spent"
+        );
+        assert!(
+            mark_result.unmatched_transparent.is_empty(),
+            "All spends should be matched"
+        );
+
+        // Create ledger entry for spending transaction
+        // Note: In a real scenario, the spent note's value would be tracked
+        let spent_note_id = stored_note.id.clone();
+        let spent_value = stored_note.value;
+        let spend_ledger = LedgerEntry::from_scan_result(
+            &spend_result,
+            WALLET_ID,
+            vec![],              // no new notes received in our wallet
+            vec![spent_note_id], // the note we're spending
+            &[spent_value],      // value of the spent note
+            timestamp,
+        );
+        ledger_collection.add_or_update(spend_ledger);
+
+        // ========================================================
+        // Step 3: Verify final state
+        // ========================================================
+
+        // Verify the note is marked as spent
+        let note = &note_collection.notes[0];
+        assert!(note.is_spent(), "Note should be marked as spent");
+        assert_eq!(
+            note.spent_txid.as_deref(),
+            Some("5aa23ef474d119dc0262b1a350b00cf4d806ee72036c460f6bcf8252da96695f")
+        );
+        assert_eq!(note.spent_at_height, Some(3760288));
+
+        // Verify balance from note collection is now zero
+        assert_eq!(
+            note_collection.total_balance(),
+            0,
+            "Note balance should be zero after spending"
+        );
+
+        // Verify ledger has two entries
+        let ledger_entries = ledger_collection.entries_for_wallet(WALLET_ID);
+        assert_eq!(ledger_entries.len(), 2, "Ledger should have 2 entries");
+
+        // Verify ledger entries track the flow correctly
+        let receive_entry = ledger_entries
+            .iter()
+            .find(|e| e.txid == receive_result.txid);
+        let spend_entry = ledger_entries.iter().find(|e| e.txid == spend_result.txid);
+
+        assert!(
+            receive_entry.is_some(),
+            "Should have receiving ledger entry"
+        );
+        assert!(spend_entry.is_some(), "Should have spending ledger entry");
+
+        // The receiving entry should show value received
+        assert!(
+            receive_entry.unwrap().value_received > 0,
+            "Receiving entry should have value_received > 0"
         );
     }
 }

@@ -13,9 +13,9 @@ pub use transaction::{
 };
 pub use types::{
     DecryptedOrchardAction, DecryptedSaplingOutput, DecryptedTransaction, DecryptionResult,
-    DerivedAddress, LedgerCollection, LedgerEntry, NetworkKind, NoteCollection, Pool, ScanResult,
-    ScanTransactionResult, ScannedNote, ScannedTransparentOutput, SpentNullifier, StorageResult,
-    StoredNote, StoredWallet, TransparentInput, TransparentOutput, TransparentSpend,
+    DerivedAddress, LedgerCollection, LedgerEntry, MarkSpentResult, NetworkKind, NoteCollection,
+    Pool, ScanResult, ScanTransactionResult, ScannedNote, ScannedTransparentOutput, SpentNullifier,
+    StorageResult, StoredNote, StoredWallet, TransparentInput, TransparentOutput, TransparentSpend,
     ViewingKeyInfo, WalletCollection, WalletResult,
 };
 pub use wallet::{

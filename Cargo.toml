@@ -15,7 +15,7 @@ zcash_address = "0.10"
 zcash_keys = { version = "0.12", default-features = false }
 zcash_note_encryption = "0.4.1"
 zcash_primitives = { version = "0.26.4", default-features = false }
-zcash_protocol = "0.7"
+zcash_protocol = "0.7.2"
 zcash_transparent = { version = "0.6", default-features = false }
 zip32 = "0.2"
 

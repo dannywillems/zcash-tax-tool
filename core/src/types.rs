@@ -317,6 +317,29 @@ pub struct TransparentSpend {
     pub prevout_index: u32,
 }
 
+/// Result of marking notes as spent.
+///
+/// Contains both the count of notes that were marked as spent and
+/// any spends that could not be matched to existing notes.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MarkSpentResult {
+    /// Number of notes that were marked as spent.
+    pub marked_count: usize,
+    /// Transparent spends that did not match any tracked notes.
+    /// These may indicate transactions scanned out of order.
+    pub unmatched_transparent: Vec<TransparentSpend>,
+    /// Shielded nullifiers that did not match any tracked notes.
+    /// These may indicate transactions scanned out of order.
+    pub unmatched_nullifiers: Vec<SpentNullifier>,
+}
+
+impl MarkSpentResult {
+    /// Check if there are any unmatched spends.
+    pub fn has_unmatched(&self) -> bool {
+        !self.unmatched_transparent.is_empty() || !self.unmatched_nullifiers.is_empty()
+    }
+}
+
 /// A transparent output found during scanning.
 ///
 /// Simpler than `TransparentOutput` - only contains data needed for balance tracking.
@@ -506,6 +529,7 @@ pub struct DerivedAddress {
 /// - memo: TEXT
 /// - address: TEXT
 /// - spent_txid: TEXT (null if unspent)
+/// - spent_at_height: INTEGER (null if unspent)
 /// - created_at: TEXT (ISO 8601)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredNote {
@@ -533,6 +557,8 @@ pub struct StoredNote {
     pub address: Option<String>,
     /// Transaction ID where this note was spent, if spent.
     pub spent_txid: Option<String>,
+    /// Block height where this note was spent, if spent.
+    pub spent_at_height: Option<u32>,
     /// Creation timestamp in ISO 8601 format.
     pub created_at: String,
 }
@@ -567,8 +593,15 @@ impl StoredNote {
             memo: note.memo.clone(),
             address: note.address.clone(),
             spent_txid: None,
+            spent_at_height: None,
             created_at: created_at.to_string(),
         }
+    }
+
+    /// Mark this note as spent.
+    pub fn mark_spent(&mut self, spent_txid: &str, spent_at_height: Option<u32>) {
+        self.spent_txid = Some(spent_txid.to_string());
+        self.spent_at_height = spent_at_height;
     }
 
     /// Check if this note is spent.
@@ -608,45 +641,59 @@ impl NoteCollection {
     }
 
     /// Mark notes as spent by matching nullifiers.
-    /// Returns the number of notes marked as spent.
+    /// Returns a result containing the count of notes marked and any unmatched nullifiers.
     pub fn mark_spent_by_nullifiers(
         &mut self,
         nullifiers: &[SpentNullifier],
         spending_txid: &str,
-    ) -> usize {
-        let mut count = 0;
+        spent_at_height: Option<u32>,
+    ) -> MarkSpentResult {
+        let mut result = MarkSpentResult::default();
         for nf in nullifiers {
+            let mut found = false;
             for note in &mut self.notes {
                 if note.nullifier.as_deref() == Some(&nf.nullifier) && note.spent_txid.is_none() {
-                    note.spent_txid = Some(spending_txid.to_string());
-                    count += 1;
+                    note.mark_spent(spending_txid, spent_at_height);
+                    result.marked_count += 1;
+                    found = true;
+                    break; // Each nullifier should only match one note
                 }
             }
+            if !found {
+                result.unmatched_nullifiers.push(nf.clone());
+            }
         }
-        count
+        result
     }
 
     /// Mark transparent notes as spent by matching prevout references.
-    /// Returns the number of notes marked as spent.
+    /// Returns a result containing the count of notes marked and any unmatched spends.
     pub fn mark_spent_by_transparent(
         &mut self,
         spends: &[TransparentSpend],
         spending_txid: &str,
-    ) -> usize {
-        let mut count = 0;
+        spent_at_height: Option<u32>,
+    ) -> MarkSpentResult {
+        let mut result = MarkSpentResult::default();
         for spend in spends {
+            let mut found = false;
             for note in &mut self.notes {
                 if note.pool == Pool::Transparent
                     && note.txid == spend.prevout_txid
                     && note.output_index == spend.prevout_index
                     && note.spent_txid.is_none()
                 {
-                    note.spent_txid = Some(spending_txid.to_string());
-                    count += 1;
+                    note.mark_spent(spending_txid, spent_at_height);
+                    result.marked_count += 1;
+                    found = true;
+                    break; // Each spend should only match one note
                 }
             }
+            if !found {
+                result.unmatched_transparent.push(spend.clone());
+            }
         }
-        count
+        result
     }
 
     /// Get all unspent notes with positive value.
@@ -1179,14 +1226,16 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
         assert!(!note.is_spent());
         assert!(note.has_value());
 
-        note.spent_txid = Some("spending_tx".to_string());
+        note.mark_spent("spending_tx", Some(100));
         assert!(note.is_spent());
+        assert_eq!(note.spent_at_height, Some(100));
     }
 
     #[test]
@@ -1203,6 +1252,7 @@ mod tests {
             memo: Some("Hello".to_string()),
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T12:00:00Z".to_string(),
         };
 
@@ -1231,6 +1281,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 
@@ -1262,6 +1313,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         });
 
@@ -1277,6 +1329,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         });
 
@@ -1285,9 +1338,11 @@ mod tests {
             nullifier: "nf1".to_string(),
         }];
 
-        let marked = collection.mark_spent_by_nullifiers(&nullifiers, "spending_tx");
-        assert_eq!(marked, 1);
+        let result = collection.mark_spent_by_nullifiers(&nullifiers, "spending_tx", Some(100));
+        assert_eq!(result.marked_count, 1);
+        assert!(result.unmatched_nullifiers.is_empty());
         assert!(collection.notes[0].is_spent());
+        assert_eq!(collection.notes[0].spent_at_height, Some(100));
         assert!(!collection.notes[1].is_spent());
     }
 
@@ -1307,6 +1362,7 @@ mod tests {
             memo: None,
             address: Some("t1addr".to_string()),
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         });
 
@@ -1315,9 +1371,91 @@ mod tests {
             prevout_index: 0,
         }];
 
-        let marked = collection.mark_spent_by_transparent(&spends, "spending_tx");
-        assert_eq!(marked, 1);
+        let result = collection.mark_spent_by_transparent(&spends, "spending_tx", Some(200));
+        assert_eq!(result.marked_count, 1);
+        assert!(result.unmatched_transparent.is_empty());
         assert!(collection.notes[0].is_spent());
+        assert_eq!(collection.notes[0].spent_at_height, Some(200));
+    }
+
+    #[test]
+    fn test_note_collection_mark_spent_unmatched_nullifiers() {
+        let mut collection = NoteCollection::new();
+
+        // Collection has one note with nf1
+        collection.notes.push(StoredNote {
+            id: "tx1-orchard-0".to_string(),
+            wallet_id: "w1".to_string(),
+            txid: "tx1".to_string(),
+            output_index: 0,
+            pool: Pool::Orchard,
+            value: 1000,
+            commitment: None,
+            nullifier: Some("nf1".to_string()),
+            memo: None,
+            address: None,
+            spent_txid: None,
+            spent_at_height: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        });
+
+        // Try to spend nf1 (exists) and nf_unknown (doesn't exist)
+        let nullifiers = vec![
+            SpentNullifier {
+                pool: Pool::Orchard,
+                nullifier: "nf1".to_string(),
+            },
+            SpentNullifier {
+                pool: Pool::Sapling,
+                nullifier: "nf_unknown".to_string(),
+            },
+        ];
+
+        let result = collection.mark_spent_by_nullifiers(&nullifiers, "spending_tx", Some(100));
+        assert_eq!(result.marked_count, 1);
+        assert_eq!(result.unmatched_nullifiers.len(), 1);
+        assert_eq!(result.unmatched_nullifiers[0].nullifier, "nf_unknown");
+        assert!(result.has_unmatched());
+    }
+
+    #[test]
+    fn test_note_collection_mark_spent_unmatched_transparent() {
+        let mut collection = NoteCollection::new();
+
+        // Collection has one transparent note
+        collection.notes.push(StoredNote {
+            id: "tx1-transparent-0".to_string(),
+            wallet_id: "w1".to_string(),
+            txid: "tx1".to_string(),
+            output_index: 0,
+            pool: Pool::Transparent,
+            value: 1000,
+            commitment: None,
+            nullifier: None,
+            memo: None,
+            address: Some("t1addr".to_string()),
+            spent_txid: None,
+            spent_at_height: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        });
+
+        // Try to spend tx1:0 (exists) and tx_unknown:0 (doesn't exist)
+        let spends = vec![
+            TransparentSpend {
+                prevout_txid: "tx1".to_string(),
+                prevout_index: 0,
+            },
+            TransparentSpend {
+                prevout_txid: "tx_unknown".to_string(),
+                prevout_index: 0,
+            },
+        ];
+
+        let result = collection.mark_spent_by_transparent(&spends, "spending_tx", Some(200));
+        assert_eq!(result.marked_count, 1);
+        assert_eq!(result.unmatched_transparent.len(), 1);
+        assert_eq!(result.unmatched_transparent[0].prevout_txid, "tx_unknown");
+        assert!(result.has_unmatched());
     }
 
     #[test]
@@ -1337,6 +1475,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         });
 
@@ -1353,6 +1492,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: None,
+            spent_at_height: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         });
 
@@ -1369,6 +1509,7 @@ mod tests {
             memo: None,
             address: None,
             spent_txid: Some("tx4".to_string()),
+            spent_at_height: Some(300),
             created_at: "2024-01-01T00:00:00Z".to_string(),
         });
 

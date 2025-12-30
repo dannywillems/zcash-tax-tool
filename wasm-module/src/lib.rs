@@ -26,7 +26,7 @@ use zcash_protocol::consensus::{Network, NetworkType};
 // Re-export types from core library
 pub use zcash_wallet_core::{
     DecryptedOrchardAction, DecryptedSaplingOutput, DecryptedTransaction, DecryptionResult,
-    LedgerCollection, LedgerEntry, NetworkKind, NoteCollection, Pool, ScanResult,
+    LedgerCollection, LedgerEntry, MarkSpentResult, NetworkKind, NoteCollection, Pool, ScanResult,
     ScanTransactionResult, ScannedNote, ScannedTransparentOutput, SpentNullifier, StorageResult,
     StoredNote, StoredWallet, TransparentInput, TransparentOutput, TransparentSpend,
     ViewingKeyInfo, WalletCollection, WalletResult,
@@ -162,20 +162,38 @@ fn decrypt_transaction_inner(
         }
     };
 
-    // Parse the transaction
-    let tx = match Transaction::read(&tx_bytes[..], zcash_primitives::consensus::BranchId::Nu6) {
-        Ok(tx) => tx,
-        Err(e) => {
-            // Try with earlier branch IDs
-            match Transaction::read(&tx_bytes[..], zcash_primitives::consensus::BranchId::Nu5) {
-                Ok(tx) => tx,
-                Err(_) => {
-                    return DecryptionResult {
-                        success: false,
-                        transaction: None,
-                        error: Some(format!("Failed to parse transaction: {}", e)),
-                    };
+    // Parse the transaction - try newest branch IDs first
+    let branch_ids = [
+        zcash_primitives::consensus::BranchId::Nu6,
+        zcash_primitives::consensus::BranchId::Nu5,
+    ];
+    // Note: For reading transactions, we try multiple branch IDs for backwards compatibility.
+    // Nu6_1 uses the same transaction format as Nu6, so reading with Nu6 works for Nu6_1 txs.
+
+    let tx = {
+        let mut parsed_tx = None;
+        let mut last_error = String::new();
+
+        for branch_id in branch_ids {
+            match Transaction::read(&tx_bytes[..], branch_id) {
+                Ok(tx) => {
+                    parsed_tx = Some(tx);
+                    break;
                 }
+                Err(e) => {
+                    last_error = format!("{}", e);
+                }
+            }
+        }
+
+        match parsed_tx {
+            Some(tx) => tx,
+            None => {
+                return DecryptionResult {
+                    success: false,
+                    transaction: None,
+                    error: Some(format!("Failed to parse transaction: {}", last_error)),
+                };
             }
         }
     };
@@ -1013,6 +1031,17 @@ struct NoteOperationResult {
     notes: Vec<StoredNote>,
     added: Option<bool>,
     marked_count: Option<usize>,
+    /// Transparent spends that did not match any tracked notes.
+    /// Present when scanning transactions out of order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmatched_transparent: Option<Vec<TransparentSpend>>,
+    /// Shielded nullifiers that did not match any tracked notes.
+    /// Present when scanning transactions out of order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmatched_nullifiers: Option<Vec<SpentNullifier>>,
+    /// Whether any spends were unmatched (convenience field).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    has_unmatched: Option<bool>,
     error: Option<String>,
 }
 
@@ -1084,6 +1113,7 @@ pub fn create_stored_note(
         memo,
         address,
         spent_txid: None,
+        spent_at_height: None,
         created_at: created_at.to_string(),
     };
 
@@ -1118,6 +1148,9 @@ pub fn add_note_to_list(notes_json: &str, note_json: &str) -> String {
                         notes: vec![],
                         added: None,
                         marked_count: None,
+                        unmatched_transparent: None,
+                        unmatched_nullifiers: None,
+                        has_unmatched: None,
                         error: Some(format!("Failed to parse notes: {}", e)),
                     })
                     .unwrap_or_else(|_| {
@@ -1136,6 +1169,9 @@ pub fn add_note_to_list(notes_json: &str, note_json: &str) -> String {
                 notes: collection.notes,
                 added: None,
                 marked_count: None,
+                unmatched_transparent: None,
+                unmatched_nullifiers: None,
+                has_unmatched: None,
                 error: Some(format!("Failed to parse note: {}", e)),
             })
             .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
@@ -1149,6 +1185,9 @@ pub fn add_note_to_list(notes_json: &str, note_json: &str) -> String {
         notes: collection.notes,
         added: Some(was_added),
         marked_count: None,
+        unmatched_transparent: None,
+        unmatched_nullifiers: None,
+        has_unmatched: None,
         error: None,
     })
     .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
@@ -1163,12 +1202,18 @@ pub fn add_note_to_list(notes_json: &str, note_json: &str) -> String {
 /// * `notes_json` - JSON array of StoredNotes
 /// * `nullifiers_json` - JSON array of SpentNullifier objects
 /// * `spending_txid` - Transaction ID where the notes were spent
+/// * `spent_at_height` - Optional block height where the spend occurred
 ///
 /// # Returns
 ///
 /// JSON containing the updated notes array and count of marked notes.
 #[wasm_bindgen]
-pub fn mark_notes_spent(notes_json: &str, nullifiers_json: &str, spending_txid: &str) -> String {
+pub fn mark_notes_spent(
+    notes_json: &str,
+    nullifiers_json: &str,
+    spending_txid: &str,
+    spent_at_height: Option<u32>,
+) -> String {
     let mut collection: NoteCollection = match serde_json::from_str(notes_json) {
         Ok(c) => c,
         Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
@@ -1179,6 +1224,9 @@ pub fn mark_notes_spent(notes_json: &str, nullifiers_json: &str, spending_txid: 
                     notes: vec![],
                     added: None,
                     marked_count: None,
+                    unmatched_transparent: None,
+                    unmatched_nullifiers: None,
+                    has_unmatched: None,
                     error: Some(format!("Failed to parse notes: {}", e)),
                 })
                 .unwrap_or_else(|_| {
@@ -1196,19 +1244,33 @@ pub fn mark_notes_spent(notes_json: &str, nullifiers_json: &str, spending_txid: 
                 notes: collection.notes,
                 added: None,
                 marked_count: None,
+                unmatched_transparent: None,
+                unmatched_nullifiers: None,
+                has_unmatched: None,
                 error: Some(format!("Failed to parse nullifiers: {}", e)),
             })
             .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
         }
     };
 
-    let marked_count = collection.mark_spent_by_nullifiers(&nullifiers, spending_txid);
+    let result = collection.mark_spent_by_nullifiers(&nullifiers, spending_txid, spent_at_height);
+
+    // Check for unmatched before extracting vectors
+    let has_unmatched = result.has_unmatched();
+    let unmatched_nullifiers = if result.unmatched_nullifiers.is_empty() {
+        None
+    } else {
+        Some(result.unmatched_nullifiers)
+    };
 
     serde_json::to_string(&NoteOperationResult {
         success: true,
         notes: collection.notes,
         added: None,
-        marked_count: Some(marked_count),
+        marked_count: Some(result.marked_count),
+        unmatched_transparent: None,
+        unmatched_nullifiers,
+        has_unmatched: if has_unmatched { Some(true) } else { None },
         error: None,
     })
     .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
@@ -1223,12 +1285,18 @@ pub fn mark_notes_spent(notes_json: &str, nullifiers_json: &str, spending_txid: 
 /// * `notes_json` - JSON array of StoredNotes
 /// * `spends_json` - JSON array of TransparentSpend objects
 /// * `spending_txid` - Transaction ID where the notes were spent
+/// * `spent_at_height` - Optional block height where the spend occurred
 ///
 /// # Returns
 ///
 /// JSON containing the updated notes array and count of marked notes.
 #[wasm_bindgen]
-pub fn mark_transparent_spent(notes_json: &str, spends_json: &str, spending_txid: &str) -> String {
+pub fn mark_transparent_spent(
+    notes_json: &str,
+    spends_json: &str,
+    spending_txid: &str,
+    spent_at_height: Option<u32>,
+) -> String {
     let mut collection: NoteCollection = match serde_json::from_str(notes_json) {
         Ok(c) => c,
         Err(_) => match serde_json::from_str::<Vec<StoredNote>>(notes_json) {
@@ -1239,6 +1307,9 @@ pub fn mark_transparent_spent(notes_json: &str, spends_json: &str, spending_txid
                     notes: vec![],
                     added: None,
                     marked_count: None,
+                    unmatched_transparent: None,
+                    unmatched_nullifiers: None,
+                    has_unmatched: None,
                     error: Some(format!("Failed to parse notes: {}", e)),
                 })
                 .unwrap_or_else(|_| {
@@ -1256,19 +1327,33 @@ pub fn mark_transparent_spent(notes_json: &str, spends_json: &str, spending_txid
                 notes: collection.notes,
                 added: None,
                 marked_count: None,
+                unmatched_transparent: None,
+                unmatched_nullifiers: None,
+                has_unmatched: None,
                 error: Some(format!("Failed to parse spends: {}", e)),
             })
             .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
         }
     };
 
-    let marked_count = collection.mark_spent_by_transparent(&spends, spending_txid);
+    let result = collection.mark_spent_by_transparent(&spends, spending_txid, spent_at_height);
+
+    // Check for unmatched before extracting vectors
+    let has_unmatched = result.has_unmatched();
+    let unmatched_transparent = if result.unmatched_transparent.is_empty() {
+        None
+    } else {
+        Some(result.unmatched_transparent)
+    };
 
     serde_json::to_string(&NoteOperationResult {
         success: true,
         notes: collection.notes,
         added: None,
-        marked_count: Some(marked_count),
+        marked_count: Some(result.marked_count),
+        unmatched_transparent,
+        unmatched_nullifiers: None,
+        has_unmatched: if has_unmatched { Some(true) } else { None },
         error: None,
     })
     .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
@@ -1348,6 +1433,9 @@ pub fn get_unspent_notes(notes_json: &str) -> String {
                     notes: vec![],
                     added: None,
                     marked_count: None,
+                    unmatched_transparent: None,
+                    unmatched_nullifiers: None,
+                    has_unmatched: None,
                     error: Some(format!("Failed to parse notes: {}", e)),
                 })
                 .unwrap_or_else(|_| {
@@ -1364,6 +1452,9 @@ pub fn get_unspent_notes(notes_json: &str) -> String {
         notes: unspent,
         added: None,
         marked_count: None,
+        unmatched_transparent: None,
+        unmatched_nullifiers: None,
+        has_unmatched: None,
         error: None,
     })
     .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
@@ -1393,6 +1484,9 @@ pub fn get_notes_for_wallet(notes_json: &str, wallet_id: &str) -> String {
                     notes: vec![],
                     added: None,
                     marked_count: None,
+                    unmatched_transparent: None,
+                    unmatched_nullifiers: None,
+                    has_unmatched: None,
                     error: Some(format!("Failed to parse notes: {}", e)),
                 })
                 .unwrap_or_else(|_| {
@@ -1413,6 +1507,9 @@ pub fn get_notes_for_wallet(notes_json: &str, wallet_id: &str) -> String {
         notes: wallet_notes,
         added: None,
         marked_count: None,
+        unmatched_transparent: None,
+        unmatched_nullifiers: None,
+        has_unmatched: None,
         error: None,
     })
     .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
