@@ -640,7 +640,7 @@ function saveNotes(notes) {
   localStorage.setItem(STORAGE_KEYS.notes, JSON.stringify(notes));
 }
 
-function addNote(note, txid) {
+function addNote(note, txid, walletId) {
   if (!wasmModule) {
     console.error("WASM module not loaded");
     return false;
@@ -649,16 +649,19 @@ function addNote(note, txid) {
   const notes = loadNotes();
   const notesJson = JSON.stringify(notes);
 
-  // Create stored note using WASM binding
+  // Create stored note using WASM binding with all required parameters
+  const createdAt = new Date().toISOString();
   const storedNoteJson = wasmModule.create_stored_note(
+    walletId || "",
     txid,
     note.pool || "unknown",
     note.output_index || 0,
     note.value || 0,
-    note.nullifier || null,
     note.commitment || null,
+    note.nullifier || null,
     note.memo || null,
-    note.address || null
+    note.address || null,
+    createdAt
   );
 
   // Add note to list (handles duplicates)
@@ -1087,7 +1090,7 @@ async function scanTransaction() {
     if (result.success && result.result) {
       // Pass wallet's known transparent addresses for filtering
       const knownAddresses = wallet.transparent_addresses || [];
-      processScanResult(result.result, knownAddresses);
+      processScanResult(result.result, knownAddresses, walletId);
     } else {
       showScanError(result.error || "Failed to scan transaction.");
     }
@@ -1099,7 +1102,11 @@ async function scanTransaction() {
   }
 }
 
-function processScanResult(scanResult, knownTransparentAddresses = []) {
+function processScanResult(
+  scanResult,
+  knownTransparentAddresses = [],
+  walletId = ""
+) {
   let notesAdded = 0;
   let notesWithValue = 0;
   let notesSkipped = 0;
@@ -1131,7 +1138,7 @@ function processScanResult(scanResult, knownTransparentAddresses = []) {
       }
     }
 
-    if (addNote(note, scanResult.txid)) {
+    if (addNote(note, scanResult.txid, walletId)) {
       notesAdded++;
     }
     if (note.value > 0) {

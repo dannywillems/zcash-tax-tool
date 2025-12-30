@@ -414,6 +414,11 @@ pub struct WalletResult {
 /// - transparent_address: TEXT
 /// - unified_full_viewing_key: TEXT
 /// - created_at: TEXT (ISO 8601)
+///
+/// Note: In localStorage, derived addresses are stored as arrays within the wallet object
+/// (`transparent_addresses` and `unified_addresses` fields). When migrating to SQLite,
+/// these should be normalized into separate `transparent_addresses` and `unified_addresses`
+/// tables with foreign key references to `wallets.id`. See `DerivedAddress` type.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredWallet {
     /// Unique wallet identifier (e.g., "wallet_1234567890").
@@ -482,6 +487,13 @@ impl StoredWallet {
 /// - address_index: INTEGER NOT NULL
 /// - address: TEXT NOT NULL
 /// - PRIMARY KEY (wallet_id, address_index)
+///
+/// In localStorage, these are currently stored as arrays within the wallet object.
+/// When migrating to SQLite, create separate tables:
+/// - `transparent_addresses` for transparent addresses
+/// - `unified_addresses` for unified addresses
+///
+/// Both tables should have a foreign key constraint: `wallet_id REFERENCES wallets(id)`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DerivedAddress {
     /// Foreign key to the wallet.

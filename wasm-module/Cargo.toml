@@ -8,6 +8,9 @@ description = "WASM module for decrypting Zcash shielded transactions"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [dependencies]
 # Core library
 zcash-wallet-core = { path = "../core" }
