@@ -228,6 +228,18 @@ body
 .bg-body-tertiary
   background-color: var(--output-card-bg) !important
 
+// bg-light override for dark mode (used in seed phrase and UFVK display)
+[data-theme="dark"] .bg-light
+  background-color: var(--card-bg) !important
+  color: var(--body-color) !important
+  border: 1px solid var(--card-border-color)
+
+@media (prefers-color-scheme: dark)
+  :root:not([data-theme="light"]) .bg-light
+    background-color: var(--card-bg) !important
+    color: var(--body-color) !important
+    border: 1px solid var(--card-border-color)
+
 // Tables - theme aware
 .table
   --bs-table-bg: var(--card-bg)
