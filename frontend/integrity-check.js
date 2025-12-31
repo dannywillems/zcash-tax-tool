@@ -24,6 +24,7 @@ const FILES_TO_VERIFY = [
   "js/storage/endpoints.js",
   "js/storage/notes.js",
   "js/storage/wallets.js",
+  "js/storage/ledger.js",
   "css/style.css",
   "index.html",
 ];
@@ -291,18 +292,28 @@ class IntegrityVerifier {
 
   updateVerificationIndicator() {
     const indicator = document.getElementById("verificationIndicator");
-    if (indicator) {
-      indicator.innerHTML = `
-        <button class="btn btn-sm btn-outline-success" id="verificationButton" title="Code integrity verified">
-          <i class="bi bi-shield-check me-1"></i>Verified
-        </button>
-      `;
+    const indicatorMobile = document.getElementById(
+      "verificationIndicatorMobile"
+    );
 
-      const button = document.getElementById("verificationButton");
-      if (button) {
-        button.addEventListener("click", () => this.showVerificationInfo());
-      }
+    const buttonHTML = `
+      <button class="btn btn-sm btn-outline-success verification-button" title="Code integrity verified">
+        <i class="bi bi-shield-check me-1"></i>Verified
+      </button>
+    `;
+
+    if (indicator) {
+      indicator.innerHTML = buttonHTML;
     }
+
+    if (indicatorMobile) {
+      indicatorMobile.innerHTML = buttonHTML;
+    }
+
+    // Add event listeners to all verification buttons
+    document.querySelectorAll(".verification-button").forEach((button) => {
+      button.addEventListener("click", () => this.showVerificationInfo());
+    });
   }
 
   async showVerificationInfo() {
