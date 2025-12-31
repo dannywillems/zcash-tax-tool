@@ -11,8 +11,11 @@ env:
 
 jobs:
   rust:
-    name: Rust WASM Build & Test
-    runs-on: ubuntu-latest
+    name: Rust WASM Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +24,10 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
+
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm
 
       - name: Install wasm-pack
         run: make install-wasm-pack
@@ -52,12 +59,15 @@ jobs:
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wasm-pkg
+          name: wasm-pkg-${{ matrix.os }}
           path: frontend/pkg/
 
   cli:
-    name: CLI Build & Test
-    runs-on: ubuntu-latest
+    name: CLI Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -91,8 +101,11 @@ jobs:
         run: make build-cli
 
   frontend:
-    name: Frontend Build & Lint
-    runs-on: ubuntu-latest
+    name: Frontend Build & Lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -114,7 +127,7 @@ jobs:
       - name: Upload CSS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: css
+          name: css-${{ matrix.os }}
           path: frontend/css/
 
   build-complete:

@@ -45,7 +45,18 @@ build: build-wasm build-cli build-sass ## Build WASM module, CLI, and CSS
 .PHONY: build-wasm
 build-wasm: ## Build WASM module with wasm-pack
 	@echo "Building WASM module..."
+ifeq ($(shell uname),Darwin)
+	@if [ -d "$$(brew --prefix llvm 2>/dev/null)" ]; then \
+		LLVM_PREFIX=$$(brew --prefix llvm); \
+		CC="$$LLVM_PREFIX/bin/clang" AR="$$LLVM_PREFIX/bin/llvm-ar" \
+		sh -c 'cd wasm-module && wasm-pack build --target web --release --out-dir ../frontend/pkg'; \
+	else \
+		echo "Error: Homebrew LLVM not found. Install with: brew install llvm"; \
+		exit 1; \
+	fi
+else
 	cd wasm-module && wasm-pack build --target web --release --out-dir ../frontend/pkg
+endif
 
 .PHONY: build-cli
 build-cli: ## Build CLI tool
