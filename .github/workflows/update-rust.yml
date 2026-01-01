@@ -16,6 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install npm dependencies
+        run: npm ci
+
       - name: Get latest nightly date
         id: get-nightly
         run: |
@@ -36,6 +45,10 @@ jobs:
         run: |
           .github/scripts/update-rust-version.sh "${{ steps.get-nightly.outputs.version }}"
 
+      - name: Run prettier
+        if: steps.get-nightly.outputs.version != steps.get-current.outputs.version
+        run: npx prettier --write "*.md"
+
       - name: Commit version update
         if: steps.get-nightly.outputs.version != steps.get-current.outputs.version
         run: |
@@ -44,16 +57,8 @@ jobs:
           git add rust-toolchain.toml Makefile .github/workflows/ci.yml
           git commit -m "chore: update Rust nightly to ${{ steps.get-nightly.outputs.version }}"
 
-      - name: Add changelog entry
-        if: steps.get-nightly.outputs.version != steps.get-current.outputs.version
-        run: |
-          DATE=$(echo "${{ steps.get-nightly.outputs.version }}" | sed 's/nightly-//')
-          sed -i "/^### Changed$/a\\
-          - Update Rust nightly to \`${{ steps.get-nightly.outputs.version }}\`" CHANGELOG.md
-          git add CHANGELOG.md
-          git commit -m "docs: add changelog entry for Rust ${{ steps.get-nightly.outputs.version }}"
-
       - name: Create Pull Request
+        id: create-pr
         if: steps.get-nightly.outputs.version != steps.get-current.outputs.version
         uses: peter-evans/create-pull-request@v7
         with:
@@ -75,3 +80,19 @@ jobs:
           branch: chore/update-rust-${{ steps.get-nightly.outputs.version }}
           base: develop
           delete-branch: true
+
+      - name: Add changelog entry with PR number
+        if: steps.create-pr.outputs.pull-request-number
+        env:
+          PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+          VERSION: ${{ steps.get-nightly.outputs.version }}
+        run: |
+          git fetch origin
+          git checkout chore/update-rust-$VERSION
+          sed -i "/^### Changed$/a\\
+          - Update Rust nightly to \`$VERSION\`\\
+            ([#$PR_NUMBER](https://github.com/${{ github.repository }}/pull/$PR_NUMBER))" CHANGELOG.md
+          npx prettier --write CHANGELOG.md
+          git add CHANGELOG.md
+          git commit -m "docs: add changelog entry for Rust $VERSION"
+          git push origin chore/update-rust-$VERSION
