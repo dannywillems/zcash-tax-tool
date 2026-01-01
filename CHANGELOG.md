@@ -39,6 +39,8 @@ and this project adheres to
   ([#146](https://github.com/LeakIX/zcash-web-wallet/pull/146))
 - CI enforces `__COMMIT_HASH__` placeholder on develop, injection on main PRs
   ([#148](https://github.com/LeakIX/zcash-web-wallet/pull/148))
+- CI should not run code coverage on main
+  ([#150](https://github.com/LeakIX/zcash-web-wallet/pull/150))
 
 ## [Unreleased]
 
