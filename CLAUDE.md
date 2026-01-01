@@ -175,14 +175,17 @@ instructions.
 
 - **main**: Production branch, protected. No direct pushes allowed.
 - **develop**: Development branch. All PRs should target this branch.
-- **Never push directly to main or develop**. Always create a feature branch and submit a PR.
-- Feature branches should be named descriptively (e.g., `fix/dark-mode-seed-display`, `feat/qr-codes`)
+- **Never push directly to main or develop**. Always create a feature branch and
+  submit a PR.
+- Feature branches should be named descriptively (e.g.,
+  `fix/dark-mode-seed-display`, `feat/qr-codes`)
 
 ### Changelog
 
 - **Every bug fix or feature must have a CHANGELOG.md entry**
 - **CHANGELOG entry must be in a separate commit** from the code changes
-- **Always include issue and PR references** in the entry: `([#issue](url), [#PR](url))`
+- **Always include issue and PR references** in the entry:
+  `([#issue](url), [#PR](url))`
 - Follow [Keep a Changelog](https://keepachangelog.com/) format
 - Add entries under `## [Unreleased]` section
 - Categories: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`

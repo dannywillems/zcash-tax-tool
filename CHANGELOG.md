@@ -34,7 +34,9 @@ and this project adheres to
 
 ### Added
 
-- Show both unified and transparent addresses in Simple view Receive dialog ([#113](https://github.com/LeakIX/zcash-web-wallet/issues/113), [#114](https://github.com/LeakIX/zcash-web-wallet/pull/114))
+- Show both unified and transparent addresses in Simple view Receive dialog
+  ([#113](https://github.com/LeakIX/zcash-web-wallet/issues/113),
+  [#114](https://github.com/LeakIX/zcash-web-wallet/pull/114))
 
 ## [0.1.0] - 2025-12-30
 
