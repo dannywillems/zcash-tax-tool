@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## 0.2.0 - 20260101
+
 ### Added
 
 - Show both unified and transparent addresses in Simple view Receive dialog
@@ -22,6 +24,8 @@ and this project adheres to
   ([#127](https://github.com/LeakIX/zcash-web-wallet/pull/127))
 - Integrity verification modal now allows verifying against a specific commit,
   branch, or tag ([#144](https://github.com/LeakIX/zcash-web-wallet/pull/144))
+- Add release process documentation
+  ([#158](https://github.com/LeakIX/zcash-web-wallet/pull/158))
 
 ### Changed
 
@@ -45,14 +49,8 @@ and this project adheres to
   ([#150](https://github.com/LeakIX/zcash-web-wallet/pull/150))
 - Deploy workflow verifies checksums before publishing to GitHub Pages
   ([#151](https://github.com/LeakIX/zcash-web-wallet/pull/151))
-
-## [Unreleased]
-
-### Added
-
-- Show both unified and transparent addresses in Simple view Receive dialog
-  ([#113](https://github.com/LeakIX/zcash-web-wallet/issues/113),
-  [#114](https://github.com/LeakIX/zcash-web-wallet/pull/114))
+- Makefile: remove inject-commit target
+  ([#157](https://github.com/LeakIX/zcash-web-wallet/pull/157))
 
 ## [0.1.0] - 2025-12-30
 
