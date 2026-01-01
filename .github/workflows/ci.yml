@@ -162,6 +162,9 @@ jobs:
           name: css-ubuntu-latest
           path: frontend/css/
 
+      - name: Lint shell scripts
+        run: make lint-shell
+
       - name: Verify checksums match files
         id: verify-checksums
         run: make verify-checksums

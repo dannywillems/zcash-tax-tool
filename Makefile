@@ -172,7 +172,7 @@ lint-js: ## Alias for format-check-js
 .PHONY: lint-shell
 lint-shell: ## Lint shell scripts with shellcheck
 	@echo "Linting shell scripts..."
-	shellcheck cli/e2e/*.sh
+	shellcheck cli/e2e/*.sh .github/scripts/*.sh
 
 # =============================================================================
 # Testing
