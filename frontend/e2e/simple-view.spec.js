@@ -4,6 +4,8 @@ import {
   waitForWasmLoad,
   restoreTestWallet,
   saveWalletToBrowser,
+  switchToSimpleView,
+  switchToAdminView,
 } from "./helpers.js";
 
 test.describe("Simple View", () => {
@@ -15,23 +17,20 @@ test.describe("Simple View", () => {
   });
 
   test("should display simple view when selected", async ({ page }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default, verify it
     await expect(page.locator("#simpleView")).toBeVisible();
     await expect(page.locator("#mainTabs")).not.toBeVisible();
   });
 
   test("should display wallet selector in simple view", async ({ page }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     await expect(page.locator("#simpleWalletSelect")).toBeVisible();
   });
 
   test("should show no wallets warning when no wallets exist", async ({
     page,
   }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     await expect(page.locator("#simpleNoWalletsWarning")).toBeVisible();
   });
 
@@ -44,7 +43,8 @@ test.describe("Simple View", () => {
     await page.reload();
     await waitForWasmLoad(page);
 
-    await page.click("#viewSimple");
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
 
     const options = page.locator("#simpleWalletSelect option");
     const count = await options.count();
@@ -57,28 +57,24 @@ test.describe("Simple View", () => {
   });
 
   test("should display balance card", async ({ page }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     await expect(page.locator("#simpleBalance")).toBeVisible();
     const balance = await page.locator("#simpleBalance").textContent();
     expect(balance).toContain("0.00");
   });
 
   test("should display receive button", async ({ page }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     await expect(page.locator("#simpleReceiveBtn")).toBeVisible();
   });
 
   test("should display send button", async ({ page }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     await expect(page.locator("#simpleSendBtn")).toBeVisible();
   });
 
   test("should display transaction list", async ({ page }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     await expect(page.locator("#simpleTransactionList")).toBeVisible();
     await expect(page.locator("#simpleTransactionList")).toContainText(
       "No transactions yet"
@@ -88,15 +84,14 @@ test.describe("Simple View", () => {
   test("should open receive modal when receive button clicked", async ({
     page,
   }) => {
-    await page.click("#viewSimple");
-
     await restoreTestWallet(page);
     await saveWalletToBrowser(page);
 
     await page.reload();
     await waitForWasmLoad(page);
 
-    await page.click("#viewSimple");
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
     await page.selectOption("#simpleWalletSelect", { index: 1 });
 
     await page.click("#simpleReceiveBtn");
@@ -107,15 +102,14 @@ test.describe("Simple View", () => {
   test("should show unified and transparent address tabs in receive modal", async ({
     page,
   }) => {
-    await page.click("#viewSimple");
-
     await restoreTestWallet(page);
     await saveWalletToBrowser(page);
 
     await page.reload();
     await waitForWasmLoad(page);
 
-    await page.click("#viewSimple");
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
     await page.selectOption("#simpleWalletSelect", { index: 1 });
 
     await page.click("#simpleReceiveBtn");
@@ -125,15 +119,14 @@ test.describe("Simple View", () => {
   });
 
   test("should display addresses in receive modal", async ({ page }) => {
-    await page.click("#viewSimple");
-
     await restoreTestWallet(page);
     await saveWalletToBrowser(page);
 
     await page.reload();
     await waitForWasmLoad(page);
 
-    await page.click("#viewSimple");
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
     await page.selectOption("#simpleWalletSelect", { index: 1 });
 
     await page.click("#simpleReceiveBtn");
@@ -155,15 +148,14 @@ test.describe("Simple View", () => {
   });
 
   test("should have copy buttons in receive modal", async ({ page }) => {
-    await page.click("#viewSimple");
-
     await restoreTestWallet(page);
     await saveWalletToBrowser(page);
 
     await page.reload();
     await waitForWasmLoad(page);
 
-    await page.click("#viewSimple");
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
     await page.selectOption("#simpleWalletSelect", { index: 1 });
 
     await page.click("#simpleReceiveBtn");
@@ -177,8 +169,7 @@ test.describe("Simple View", () => {
   test("should link to wallet tab from no wallets warning", async ({
     page,
   }) => {
-    await page.click("#viewSimple");
-
+    // App starts in simple view by default
     const link = page.locator("#simpleGoToWalletTab");
     await expect(link).toBeVisible();
 

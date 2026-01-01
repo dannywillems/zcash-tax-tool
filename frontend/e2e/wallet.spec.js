@@ -75,7 +75,9 @@ test.describe("Wallet Generation and Restoration", () => {
 
     const transparentAddr = await page
       .evaluate(() => {
-        const wallets = JSON.parse(localStorage.getItem("zcash_wallets"));
+        const wallets = JSON.parse(
+          localStorage.getItem("zcash_viewer_wallets")
+        );
         return wallets[Object.keys(wallets)[0]].transparent_address;
       })
       .catch(() => null);
@@ -95,7 +97,7 @@ test.describe("Wallet Generation and Restoration", () => {
     await saveWalletToBrowser(page);
 
     const walletsInStorage = await page.evaluate(() => {
-      return localStorage.getItem("zcash_wallets");
+      return localStorage.getItem("zcash_viewer_wallets");
     });
 
     expect(walletsInStorage).not.toBeNull();
@@ -142,7 +144,7 @@ test.describe("Wallet Generation and Restoration", () => {
     });
 
     const addr0 = await page.evaluate(() => {
-      const wallets = JSON.parse(localStorage.getItem("zcash_wallets"));
+      const wallets = JSON.parse(localStorage.getItem("zcash_viewer_wallets"));
       return wallets[Object.keys(wallets)[0]].transparent_address;
     });
 
@@ -162,7 +164,7 @@ test.describe("Wallet Generation and Restoration", () => {
     });
 
     const addr1 = await page.evaluate(() => {
-      const wallets = JSON.parse(localStorage.getItem("zcash_wallets"));
+      const wallets = JSON.parse(localStorage.getItem("zcash_viewer_wallets"));
       return wallets[Object.keys(wallets)[0]].transparent_address;
     });
 

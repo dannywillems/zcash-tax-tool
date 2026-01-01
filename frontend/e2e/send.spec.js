@@ -5,6 +5,7 @@ import {
   navigateToTab,
   restoreTestWallet,
   saveWalletToBrowser,
+  switchToSimpleView,
 } from "./helpers.js";
 
 test.describe("Send Transaction", () => {
@@ -159,14 +160,14 @@ test.describe("Simple View Send Modal", () => {
   });
 
   test("should open send modal from simple view", async ({ page }) => {
-    await page.click("#viewSimple");
-
     await restoreTestWallet(page);
     await saveWalletToBrowser(page);
 
     await page.reload();
     await waitForWasmLoad(page);
 
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
     await page.selectOption("#simpleWalletSelect", { index: 1 });
 
     await page.click("#simpleSendBtn");
@@ -177,14 +178,14 @@ test.describe("Simple View Send Modal", () => {
   test("should have address and amount fields in send modal", async ({
     page,
   }) => {
-    await page.click("#viewSimple");
-
     await restoreTestWallet(page);
     await saveWalletToBrowser(page);
 
     await page.reload();
     await waitForWasmLoad(page);
 
+    // restoreTestWallet switches to admin view, need to switch back
+    await switchToSimpleView(page);
     await page.selectOption("#simpleWalletSelect", { index: 1 });
     await page.click("#simpleSendBtn");
 

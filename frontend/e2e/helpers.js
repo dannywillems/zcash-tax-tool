@@ -10,12 +10,27 @@ export async function clearLocalStorage(page) {
   await page.evaluate(() => {
     localStorage.clear();
   });
+  await page.reload();
 }
 
 export async function waitForWasmLoad(page) {
+  // Wait for WASM to load by checking that the error alert is not shown
+  // If WASM fails to load, the app shows #errorAlert (removes d-none class)
+  // If WASM loads successfully, #errorAlert keeps the d-none class
   await page.waitForFunction(
     () => {
-      return typeof window.wasmModule !== "undefined";
+      const errorAlert = document.querySelector("#errorAlert");
+      // WASM loaded if error alert exists and is hidden (has d-none class)
+      // This means the app initialized without showing an error
+      if (errorAlert && errorAlert.classList.contains("d-none")) {
+        return true;
+      }
+      // Also check if error alert is visible (WASM failed)
+      if (errorAlert && !errorAlert.classList.contains("d-none")) {
+        throw new Error("WASM module failed to load");
+      }
+      // Still waiting for DOM to be ready
+      return false;
     },
     { timeout: 30000 }
   );
@@ -24,18 +39,22 @@ export async function waitForWasmLoad(page) {
 export async function switchToAdminView(page) {
   const viewModeRadio = page.locator("#viewAdmin");
   if (!(await viewModeRadio.isChecked())) {
-    await viewModeRadio.click();
+    // Click the label, not the hidden radio input
+    await page.locator('label[for="viewAdmin"]').click();
   }
 }
 
 export async function switchToSimpleView(page) {
   const viewModeRadio = page.locator("#viewSimple");
   if (!(await viewModeRadio.isChecked())) {
-    await viewModeRadio.click();
+    // Click the label, not the hidden radio input
+    await page.locator('label[for="viewSimple"]').click();
   }
 }
 
 export async function navigateToTab(page, tabId) {
+  // Admin tabs require switching to admin view first
+  await switchToAdminView(page);
   await page.click(`#${tabId}-tab`);
   await page.waitForSelector(`#${tabId}-pane.active`, { state: "visible" });
 }

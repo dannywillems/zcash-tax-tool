@@ -105,10 +105,11 @@ test.describe("Scanner and Notes", () => {
     };
 
     await page.evaluate((notes) => {
-      localStorage.setItem("zcash_notes", JSON.stringify(notes));
+      localStorage.setItem("zcash_viewer_notes", JSON.stringify(notes));
     }, mockNotes);
 
     await page.reload();
+    await waitForWasmLoad(page);
     await navigateToTab(page, "scanner");
 
     page.on("dialog", (dialog) => dialog.accept());
@@ -117,7 +118,7 @@ test.describe("Scanner and Notes", () => {
     await page.waitForTimeout(500);
 
     const storedNotes = await page.evaluate(() => {
-      return localStorage.getItem("zcash_notes");
+      return localStorage.getItem("zcash_viewer_notes");
     });
     expect(storedNotes).toBeNull();
   });
@@ -133,13 +134,14 @@ test.describe("Scanner and Notes", () => {
     };
 
     await page.evaluate((notes) => {
-      localStorage.setItem("zcash_notes", JSON.stringify(notes));
+      localStorage.setItem("zcash_viewer_notes", JSON.stringify(notes));
     }, testNotes);
 
     await page.reload();
+    await waitForWasmLoad(page);
 
     const storedNotes = await page.evaluate(() => {
-      return JSON.parse(localStorage.getItem("zcash_notes"));
+      return JSON.parse(localStorage.getItem("zcash_viewer_notes"));
     });
 
     expect(storedNotes).toEqual(testNotes);

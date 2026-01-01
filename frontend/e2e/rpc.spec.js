@@ -1,10 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { clearLocalStorage, navigateToTab } from "./helpers.js";
+import {
+  clearLocalStorage,
+  navigateToTab,
+  waitForWasmLoad,
+} from "./helpers.js";
 
 test.describe("RPC Endpoint Management", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await clearLocalStorage(page);
+    await waitForWasmLoad(page);
   });
 
   test("should display default RPC endpoints", async ({ page }) => {
@@ -39,7 +44,7 @@ test.describe("RPC Endpoint Management", () => {
     await page.click("#addEndpointBtn");
 
     const storedEndpoints = await page.evaluate(() => {
-      return localStorage.getItem("rpc_endpoints");
+      return localStorage.getItem("zcash_viewer_endpoints");
     });
 
     expect(storedEndpoints).toContain(customEndpoint);
