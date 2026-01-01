@@ -30,9 +30,6 @@ jobs:
       - name: Install npm dependencies
         run: make install-npm
 
-      - name: Build Sass
-        run: make build-sass
-
       - name: Verify checksums
         run: make verify-checksums
 
