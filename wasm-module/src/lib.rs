@@ -2450,6 +2450,74 @@ pub fn export_ledger_csv(ledger_json: &str, wallet_id: &str) -> String {
     }
 }
 
+// ============================================================================
+// QR Code Generation
+// ============================================================================
+
+/// Result type for QR code generation
+#[derive(serde::Serialize, serde::Deserialize)]
+struct QrCodeResult {
+    success: bool,
+    svg: Option<String>,
+    error: Option<String>,
+}
+
+/// Generate a QR code SVG for the given data.
+///
+/// Creates a QR code with medium error correction level (15% recovery).
+/// Returns an SVG string that can be directly embedded in HTML.
+///
+/// # Arguments
+///
+/// * `data` - The data to encode (e.g., a Zcash address)
+/// * `module_size` - Size of each QR module in pixels (recommended: 4-10)
+///
+/// # Returns
+///
+/// JSON with `{success: bool, svg?: string, error?: string}`
+///
+/// # Example
+///
+/// ```javascript
+/// const result = JSON.parse(generate_qr_svg("u1abc...", 6));
+/// if (result.success) {
+///   document.getElementById("qr").innerHTML = result.svg;
+/// }
+/// ```
+#[wasm_bindgen]
+pub fn generate_qr_svg(data: &str, module_size: u32) -> String {
+    let data = data.trim();
+
+    if data.is_empty() {
+        return serde_json::to_string(&QrCodeResult {
+            success: false,
+            svg: None,
+            error: Some("Data is empty".to_string()),
+        })
+        .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string());
+    }
+
+    let module_size = if module_size == 0 { 6 } else { module_size };
+
+    match qr::QrCode::encode(data, qr::ErrorCorrectionLevel::M) {
+        Ok(qr_code) => {
+            let svg = qr_code.to_svg(module_size);
+            serde_json::to_string(&QrCodeResult {
+                success: true,
+                svg: Some(svg),
+                error: None,
+            })
+            .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string())
+        }
+        Err(e) => serde_json::to_string(&QrCodeResult {
+            success: false,
+            svg: None,
+            error: Some(e),
+        })
+        .unwrap_or_else(|_| r#"{"success":false,"error":"Serialization error"}"#.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2459,5 +2527,14 @@ mod tests {
         let result = parse_viewing_key("invalid_key");
         let info: ViewingKeyInfo = serde_json::from_str(&result).unwrap();
         assert!(!info.valid);
+    }
+
+    #[test]
+    fn test_generate_qr_svg() {
+        let result = generate_qr_svg("u1test123", 6);
+        let parsed: QrCodeResult = serde_json::from_str(&result).unwrap();
+        assert!(parsed.success);
+        assert!(parsed.svg.is_some());
+        assert!(parsed.svg.unwrap().starts_with("<svg"));
     }
 }

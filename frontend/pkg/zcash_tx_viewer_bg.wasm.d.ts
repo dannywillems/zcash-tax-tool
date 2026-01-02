@@ -14,6 +14,7 @@ export const delete_wallet_from_list: (a: number, b: number, c: number, d: numbe
 export const derive_transparent_addresses: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
 export const derive_unified_addresses: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
 export const export_ledger_csv: (a: number, b: number, c: number, d: number) => [number, number];
+export const generate_qr_svg: (a: number, b: number, c: number) => [number, number];
 export const generate_wallet: (a: number, b: number, c: number, d: number) => [number, number];
 export const get_all_wallets: (a: number, b: number) => [number, number];
 export const get_ledger_for_wallet: (a: number, b: number, c: number, d: number) => [number, number];

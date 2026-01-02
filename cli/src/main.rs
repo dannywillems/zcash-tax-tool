@@ -37,6 +37,9 @@ enum Commands {
         /// Address index (diversifier index for shielded addresses). Default: 0
         #[arg(long, default_value = "0")]
         address_index: u32,
+        /// Show QR code for the unified address
+        #[arg(long)]
+        qr: bool,
     },
     /// Restore wallet from seed phrase
     Restore {
@@ -55,6 +58,9 @@ enum Commands {
         /// Address index (diversifier index for shielded addresses). Default: 0
         #[arg(long, default_value = "0")]
         address_index: u32,
+        /// Show QR code for the unified address
+        #[arg(long)]
+        qr: bool,
     },
     /// Show faucet information
     Faucet,
@@ -130,6 +136,17 @@ enum Commands {
         #[arg(long)]
         export: Option<String>,
     },
+    /// Generate a QR code for data (e.g., an address)
+    Qr {
+        /// Data to encode (e.g., a Zcash address)
+        data: String,
+        /// Output file path for SVG (if not specified, prints to terminal)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Use compact display mode (half-height characters)
+        #[arg(long)]
+        compact: bool,
+    },
 }
 
 fn main() {
@@ -148,14 +165,23 @@ fn run() -> Result<()> {
             mainnet,
             account,
             address_index,
-        } => generate_wallet(&output, mainnet, account, address_index),
+            qr,
+        } => generate_wallet(&output, mainnet, account, address_index, qr),
         Commands::Restore {
             seed,
             output,
             mainnet,
             account,
             address_index,
-        } => restore_wallet(&seed, output.as_deref(), mainnet, account, address_index),
+            qr,
+        } => restore_wallet(
+            &seed,
+            output.as_deref(),
+            mainnet,
+            account,
+            address_index,
+            qr,
+        ),
         Commands::Faucet => show_faucet_info(),
         Commands::Config { rpc_url, db } => configure(&db, rpc_url),
         Commands::Scan {
@@ -176,6 +202,11 @@ fn run() -> Result<()> {
             expiry_height,
         } => send_transparent(&wallet, &db, &to, amount, fee, expiry_height),
         Commands::Ledger { db, export } => show_ledger(&db, export.as_deref()),
+        Commands::Qr {
+            data,
+            output,
+            compact,
+        } => generate_qr(&data, output.as_deref(), compact),
     }
 }
 
@@ -184,6 +215,7 @@ fn generate_wallet(
     mainnet: bool,
     account: u32,
     address_index: u32,
+    show_qr: bool,
 ) -> Result<()> {
     // Check if output file already exists
     let path = Path::new(output_path);
@@ -273,6 +305,20 @@ fn generate_wallet(
     }
     println!();
 
+    // Show QR code if requested
+    if show_qr {
+        println!("------------------------------------------------------------");
+        println!("QR CODE (Unified Address)");
+        println!("------------------------------------------------------------");
+        println!();
+        if let Ok(qr_code) =
+            qr::QrCode::encode(&wallet.unified_address, qr::ErrorCorrectionLevel::M)
+        {
+            print!("{}", qr_code.to_ascii_compact());
+        }
+        println!();
+    }
+
     Ok(())
 }
 
@@ -282,6 +328,7 @@ fn restore_wallet(
     mainnet: bool,
     account: u32,
     address_index: u32,
+    show_qr: bool,
 ) -> Result<()> {
     let network = if mainnet {
         Network::MainNetwork
@@ -352,6 +399,20 @@ fn restore_wallet(
     println!("Unified Full Viewing Key:");
     println!("  {}", wallet.unified_full_viewing_key);
     println!();
+
+    // Show QR code if requested
+    if show_qr {
+        println!("------------------------------------------------------------");
+        println!("QR CODE (Unified Address)");
+        println!("------------------------------------------------------------");
+        println!();
+        if let Ok(qr_code) =
+            qr::QrCode::encode(&wallet.unified_address, qr::ErrorCorrectionLevel::M)
+        {
+            print!("{}", qr_code.to_ascii_compact());
+        }
+        println!();
+    }
 
     Ok(())
 }
@@ -889,6 +950,35 @@ fn show_ledger(db_path: &str, export_path: Option<&str>) -> Result<()> {
     println!();
     println!("Tip: Use --export <file.csv> to export for tax reporting.");
     println!();
+
+    Ok(())
+}
+
+fn generate_qr(data: &str, output_path: Option<&str>, compact: bool) -> Result<()> {
+    // Generate QR code
+    let qr_code = qr::QrCode::encode(data, qr::ErrorCorrectionLevel::M)
+        .map_err(|e| CliError::Wallet(format!("Failed to generate QR code: {}", e)))?;
+
+    if let Some(path) = output_path {
+        // Save as SVG
+        let svg = qr_code.to_svg(10);
+        fs::write(path, &svg).map_err(|e| CliError::FileWrite {
+            path: path.to_string(),
+            source: e,
+        })?;
+        println!("QR code saved to: {}", path);
+    } else {
+        // Print to terminal
+        println!();
+        if compact {
+            print!("{}", qr_code.to_ascii_compact());
+        } else {
+            print!("{}", qr_code.to_ascii());
+        }
+        println!();
+        println!("Data: {}", data);
+        println!();
+    }
 
     Ok(())
 }

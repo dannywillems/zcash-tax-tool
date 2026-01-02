@@ -1,0 +1,18 @@
+[package]
+name = "qr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Minimal QR code generator for Zcash addresses"
+
+[lib]
+crate-type = ["lib"]
+
+[features]
+default = []
+png = ["dep:png"]
+
+[dependencies]
+png = { version = "0.17", optional = true }
+
+[dev-dependencies]
