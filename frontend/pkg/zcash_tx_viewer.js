@@ -590,6 +590,48 @@ export function export_ledger_csv(ledger_json, wallet_id) {
 }
 
 /**
+ * Generate a QR code SVG for the given data.
+ *
+ * Creates a QR code with medium error correction level (15% recovery).
+ * Returns an SVG string that can be directly embedded in HTML.
+ *
+ * # Arguments
+ *
+ * * `data` - The data to encode (e.g., a Zcash address)
+ * * `module_size` - Size of each QR module in pixels (recommended: 4-10)
+ *
+ * # Returns
+ *
+ * JSON with `{success: bool, svg?: string, error?: string}`
+ *
+ * # Example
+ *
+ * ```javascript
+ * const result = JSON.parse(generate_qr_svg("u1abc...", 6));
+ * if (result.success) {
+ *   document.getElementById("qr").innerHTML = result.svg;
+ * }
+ * ```
+ * @param {string} data
+ * @param {number} module_size
+ * @returns {string}
+ */
+export function generate_qr_svg(data, module_size) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(data, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.generate_qr_svg(ptr0, len0, module_size);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Generate a new wallet with a random seed phrase
  * @param {string} network_str
  * @param {number} account_index

@@ -219,6 +219,32 @@ export function derive_unified_addresses(seed_phrase: string, network_str: strin
 export function export_ledger_csv(ledger_json: string, wallet_id: string): string;
 
 /**
+ * Generate a QR code SVG for the given data.
+ *
+ * Creates a QR code with medium error correction level (15% recovery).
+ * Returns an SVG string that can be directly embedded in HTML.
+ *
+ * # Arguments
+ *
+ * * `data` - The data to encode (e.g., a Zcash address)
+ * * `module_size` - Size of each QR module in pixels (recommended: 4-10)
+ *
+ * # Returns
+ *
+ * JSON with `{success: bool, svg?: string, error?: string}`
+ *
+ * # Example
+ *
+ * ```javascript
+ * const result = JSON.parse(generate_qr_svg("u1abc...", 6));
+ * if (result.success) {
+ *   document.getElementById("qr").innerHTML = result.svg;
+ * }
+ * ```
+ */
+export function generate_qr_svg(data: string, module_size: number): string;
+
+/**
  * Generate a new wallet with a random seed phrase
  */
 export function generate_wallet(network_str: string, account_index: number, address_index: number): string;
@@ -540,6 +566,7 @@ export interface InitOutput {
   readonly derive_transparent_addresses: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
   readonly derive_unified_addresses: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
   readonly export_ledger_csv: (a: number, b: number, c: number, d: number) => [number, number];
+  readonly generate_qr_svg: (a: number, b: number, c: number) => [number, number];
   readonly generate_wallet: (a: number, b: number, c: number, d: number) => [number, number];
   readonly get_all_wallets: (a: number, b: number) => [number, number];
   readonly get_ledger_for_wallet: (a: number, b: number, c: number, d: number) => [number, number];
