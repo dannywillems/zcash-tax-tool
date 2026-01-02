@@ -1036,6 +1036,64 @@ impl QrCode {
         svg
     }
 
+    /// Render the QR code as a PNG image.
+    ///
+    /// Returns the PNG data as a byte vector.
+    ///
+    /// # Arguments
+    /// * `module_size` - Size of each module in pixels
+    ///
+    /// # Example
+    /// ```
+    /// # #[cfg(feature = "png")]
+    /// # {
+    /// use qr::{QrCode, ErrorCorrectionLevel};
+    /// let qr = QrCode::encode("Hello", ErrorCorrectionLevel::M).unwrap();
+    /// let png_data = qr.to_png(10);
+    /// // std::fs::write("qr.png", png_data).unwrap();
+    /// # }
+    /// ```
+    #[cfg(feature = "png")]
+    pub fn to_png(&self, module_size: u32) -> Vec<u8> {
+        let size = self.size();
+        let quiet_zone = 4usize; // Standard quiet zone is 4 modules
+        let total_size = (size + 2 * quiet_zone) * module_size as usize;
+
+        // Create grayscale image buffer (0 = black, 255 = white)
+        let mut pixels = vec![255u8; total_size * total_size];
+
+        // Draw black modules
+        for row in 0..size {
+            for col in 0..size {
+                if self.modules[row][col] {
+                    let px = (col + quiet_zone) * module_size as usize;
+                    let py = (row + quiet_zone) * module_size as usize;
+
+                    // Fill the module area with black pixels
+                    for dy in 0..module_size as usize {
+                        for dx in 0..module_size as usize {
+                            let idx = (py + dy) * total_size + (px + dx);
+                            pixels[idx] = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Encode as PNG
+        let mut png_data = Vec::new();
+        {
+            let mut encoder =
+                png::Encoder::new(&mut png_data, total_size as u32, total_size as u32);
+            encoder.set_color(png::ColorType::Grayscale);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("PNG header write failed");
+            writer.write_image_data(&pixels).expect("PNG data write failed");
+        }
+
+        png_data
+    }
+
     /// Render the QR code as ASCII art for terminal display.
     ///
     /// Uses Unicode block characters for compact display:
@@ -1147,37 +1205,18 @@ impl QrCode {
 
     // Helper functions to get QR code parameters
 
+    /// Get total codewords for a version.
+    ///
+    /// Values from ISO 18004:2015 Table 9.
     fn get_total_codewords(version: u8) -> usize {
-        let size = version as usize * 4 + 17;
-        let total_modules = size * size;
-        let function_modules = Self::count_function_modules(version);
-        (total_modules - function_modules) / 8
-    }
-
-    fn count_function_modules(version: u8) -> usize {
-        // Finder patterns + separators: 3 * (8*8) = 192
-        // Timing patterns (excluding overlaps): 2 * (size - 16) - 1
-        // Format info: 31 (2 * 15 + 1 dark module)
-        // Version info (v7+): 36
-        // Alignment patterns
-        let size = version as usize * 4 + 17;
-        let mut count = 3 * 64 + 3 * 15; // Finders + separators
-
-        count += 2 * (size - 16); // Timing patterns
-
-        if version >= 2 {
-            let num_align = (version / 7) as usize + 2;
-            let align_patterns = num_align * num_align - 3; // Minus 3 for finder overlaps
-            count += align_patterns * 25;
-            count -= (num_align - 2) * 5 * 2; // Timing pattern overlaps
-        }
-
-        count += 31; // Format info
-        if version >= 7 {
-            count += 36; // Version info
-        }
-
-        count
+        // Total codewords per version (1-40)
+        const TOTAL_CODEWORDS: [usize; 40] = [
+            26, 44, 70, 100, 134, 172, 196, 242, 292, 346, // 1-10
+            404, 466, 532, 581, 655, 733, 815, 901, 991, 1085, // 11-20
+            1156, 1258, 1364, 1474, 1588, 1706, 1828, 1921, 2051, 2185, // 21-30
+            2323, 2465, 2611, 2761, 2876, 3034, 3196, 3362, 3532, 3706, // 31-40
+        ];
+        TOTAL_CODEWORDS[version as usize - 1]
     }
 
     fn get_data_codewords(version: u8, ecl: ErrorCorrectionLevel) -> usize {
@@ -1417,6 +1456,52 @@ mod tests {
     fn test_encode_simple() {
         let qr = QrCode::encode("HELLO", ErrorCorrectionLevel::M).unwrap();
         assert!(qr.size() >= 21); // Version 1 minimum
+    }
+
+    /// Test that data encoding produces correct bitstream for "HELLO".
+    ///
+    /// Per Thonky QR Code Tutorial, "HELLO" in byte mode should produce:
+    /// Mode: 0100, Count: 00000101, Data: 01001000 01000101 01001100 01001100 01001111
+    #[test]
+    fn test_data_encoding_hello() {
+        // Test the internal encode_data function
+        let data = b"HELLO";
+        let version = 1u8;
+        let ecl = ErrorCorrectionLevel::M;
+
+        let codewords = QrCode::encode_data(data, version, ecl).unwrap();
+
+        // For version 1-M, total data codewords = 16
+        assert_eq!(codewords.len(), 16, "Should have 16 data codewords for v1-M");
+
+        // First codeword: mode (0100) + first 4 bits of count (0000) = 0100_0000 = 0x40
+        assert_eq!(codewords[0], 0x40, "First codeword should be 0x40");
+
+        // Second codeword: last 4 bits of count (0101) + first 4 bits of 'H' (0100) = 0101_0100 = 0x54
+        assert_eq!(codewords[1], 0x54, "Second codeword should be 0x54");
+
+        // Third codeword: last 4 bits of 'H' (1000) + first 4 bits of 'E' (0100) = 1000_0100 = 0x84
+        assert_eq!(codewords[2], 0x84, "Third codeword should be 0x84");
+    }
+
+    /// Debug test to print QR matrix for visual inspection.
+    /// Run with: cargo test -p qr -- --nocapture debug_print_matrix
+    #[test]
+    fn debug_print_matrix() {
+        let qr = QrCode::encode("HELLO", ErrorCorrectionLevel::M).unwrap();
+        println!("\n=== QR Code Debug Info ===");
+        println!("Version: {}", qr.version);
+        println!("Size: {}x{}", qr.size(), qr.size());
+        println!("Mask: {}", qr.mask);
+        println!("EC Level: {:?}", qr.error_correction);
+        println!("\nMatrix (1=black, 0=white):");
+        for row in 0..qr.size() {
+            for col in 0..qr.size() {
+                print!("{}", if qr.get(row, col) { "1" } else { "0" });
+            }
+            println!();
+        }
+        println!();
     }
 
     #[test]

@@ -8,6 +8,11 @@ description = "Minimal QR code generator for Zcash addresses"
 [lib]
 crate-type = ["lib"]
 
+[features]
+default = []
+png = ["dep:png"]
+
 [dependencies]
+png = { version = "0.17", optional = true }
 
 [dev-dependencies]

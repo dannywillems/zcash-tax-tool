@@ -206,7 +206,7 @@ test: test-rust test-e2e test-e2e-frontend ## Run all tests
 	@echo "All tests passed"
 
 .PHONY: test-rust
-test-rust: test-core test-wasm-unit test-cli ## Run all Rust unit tests
+test-rust: test-core test-wasm-unit test-cli test-qr ## Run all Rust unit tests
 	@echo "Rust tests complete"
 
 .PHONY: test-core
@@ -223,6 +223,13 @@ test-wasm-unit: ## Run WASM module unit tests
 test-cli: ## Run CLI unit tests
 	@echo "Running CLI tests..."
 	$(CARGO) test -p zcash-wallet-cli
+
+.PHONY: test-qr
+test-qr: ## Run QR code tests (Rust + Python comparison)
+	@echo "Running QR code Rust tests..."
+	$(CARGO) test -p qr
+	@echo "Running QR code Python comparison tests..."
+	python3 qr/tests/compare_qr.py
 
 .PHONY: test-e2e
 test-e2e: build-cli ## Run CLI end-to-end tests
