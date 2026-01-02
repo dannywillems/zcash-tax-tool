@@ -1,6 +1,6 @@
 {
-  "version": "f9c3fbbca571cb89a0d0521f5ea1836ad829213f",
-  "timestamp": "2026-01-02T21:14:20.642Z",
+  "version": "80cabca88685fc7c1b454989e0f06954b173936d",
+  "timestamp": "2026-01-02T21:40:35.449Z",
   "files": {
     "js/app.js": "9504744a580c123a5f068ef546b3e3c6b8cd7ab41b16716187a4867eceac5524",
     "js/wasm.js": "d59292cdb2e7884ec9d8e05d1accc9f5ec81871119128580039fb6d014f7b8fd",
@@ -21,6 +21,6 @@
     "css/style.css": "e96edf0153354cbfd64beeb8912f1b8204784db62153949e67f3f80d54f0a5f6",
     "index.html": "ebd968a848278c40b151a651571ffaafd31e72d6619e078ff72eb93b0d737af4",
     "pkg/zcash_tx_viewer.js": "7027f2058d01f48d3fb8fc16a3151790c4fa838306788abc5f267f7aa034d679",
-    "pkg/zcash_tx_viewer_bg.wasm": "19d64115191bc50d6c346ea279f79b59aebac3a523358ae11c39956a352ecde1"
+    "pkg/zcash_tx_viewer_bg.wasm": "0be20a5028cbd519237628b0a4809518305b336ac00351b0fc4c1704daedd0db"
   }
 }
