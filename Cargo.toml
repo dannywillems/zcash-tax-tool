@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "wasm-module", "cli", "html-builder"]
+members = ["core", "wasm-module", "cli", "html-builder", "qr"]
 
 [workspace.package]
 version = "0.1.0"
@@ -38,3 +38,6 @@ reqwest = { version = "0.12", features = ["blocking", "json"] }
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Internal crates
+qr = { path = "qr" }

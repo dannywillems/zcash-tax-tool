@@ -13,6 +13,9 @@ path = "src/main.rs"
 # Core library
 zcash-wallet-core = { path = "../core" }
 
+# QR code generation
+qr.workspace = true
+
 # Zcash crates
 orchard = { workspace = true, features = ["std"] }
 sapling-crypto = { workspace = true, features = ["std"] }

@@ -247,12 +247,22 @@ export function updateReceiveAddress(walletId) {
   const transparentDisplay = document.getElementById(
     "receiveTransparentAddressDisplay"
   );
+  const unifiedQrContainer = document.getElementById("receiveUnifiedQrCode");
+  const transparentQrContainer = document.getElementById(
+    "receiveTransparentQrCode"
+  );
 
   if (!unifiedDisplay || !transparentDisplay) return;
+
+  const clearQrCode = (container) => {
+    if (container) container.innerHTML = "";
+  };
 
   if (!walletId) {
     unifiedDisplay.textContent = "No wallet selected";
     transparentDisplay.textContent = "No wallet selected";
+    clearQrCode(unifiedQrContainer);
+    clearQrCode(transparentQrContainer);
     return;
   }
 
@@ -262,12 +272,56 @@ export function updateReceiveAddress(walletId) {
   if (!wallet) {
     unifiedDisplay.textContent = "Wallet not found";
     transparentDisplay.textContent = "Wallet not found";
+    clearQrCode(unifiedQrContainer);
+    clearQrCode(transparentQrContainer);
     return;
   }
 
   unifiedDisplay.textContent = wallet.unified_address || "No unified address";
   transparentDisplay.textContent =
     wallet.transparent_address || "No transparent address";
+
+  // Generate QR codes
+  const wasmModule = getWasm();
+  if (wasmModule && wasmModule.generate_qr_svg) {
+    // Generate unified address QR code
+    if (wallet.unified_address && unifiedQrContainer) {
+      try {
+        const result = JSON.parse(
+          wasmModule.generate_qr_svg(wallet.unified_address, 4)
+        );
+        if (result.success && result.svg) {
+          unifiedQrContainer.innerHTML = result.svg;
+        } else {
+          clearQrCode(unifiedQrContainer);
+        }
+      } catch (e) {
+        console.error("Failed to generate unified address QR code:", e);
+        clearQrCode(unifiedQrContainer);
+      }
+    } else {
+      clearQrCode(unifiedQrContainer);
+    }
+
+    // Generate transparent address QR code
+    if (wallet.transparent_address && transparentQrContainer) {
+      try {
+        const result = JSON.parse(
+          wasmModule.generate_qr_svg(wallet.transparent_address, 4)
+        );
+        if (result.success && result.svg) {
+          transparentQrContainer.innerHTML = result.svg;
+        } else {
+          clearQrCode(transparentQrContainer);
+        }
+      } catch (e) {
+        console.error("Failed to generate transparent address QR code:", e);
+        clearQrCode(transparentQrContainer);
+      }
+    } else {
+      clearQrCode(transparentQrContainer);
+    }
+  }
 }
 
 // Get default RPC endpoint for a network
