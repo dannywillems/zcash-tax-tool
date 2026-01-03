@@ -16,6 +16,11 @@ and this project adheres to
   - Add render functions for balance cards, notes, transactions, and empty
     states
   - First step toward moving DOM manipulation from JavaScript to Rust/WASM
+- Add mobile responsive testing with Playwright
+  ([#176](https://github.com/LeakIX/zcash-web-wallet/issues/176),
+  [#179](https://github.com/LeakIX/zcash-web-wallet/pull/179))
+  - Add mobile device profiles (Pixel 5, iPhone 12)
+  - Run E2E tests on desktop, mobile Chrome, and mobile Safari in CI
 
 ## 0.2.0 - 20260101
 
