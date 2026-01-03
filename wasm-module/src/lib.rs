@@ -3500,6 +3500,128 @@ pub fn render_empty_state(message: &str, icon_class: &str) -> String {
         .render()
 }
 
+/// Generate HTML for the send UTXOs table.
+///
+/// Creates a table displaying available transparent UTXOs for sending.
+///
+/// # Arguments
+///
+/// * `utxos_json` - JSON array of StoredNote objects (filtered to transparent)
+/// * `network` - Network name ("mainnet" or "testnet") for explorer links
+///
+/// # Returns
+///
+/// HTML string for the UTXOs table.
+#[wasm_bindgen]
+pub fn render_send_utxos_table(utxos_json: &str, network: &str) -> String {
+    let utxos: Vec<StoredNote> = match serde_json::from_str(utxos_json) {
+        Ok(u) => u,
+        Err(_) => return String::new(),
+    };
+
+    if utxos.is_empty() {
+        return render_empty_state(
+            "No transparent UTXOs available for this wallet.",
+            "bi-inbox",
+        );
+    }
+
+    let explorer_base = if network == "mainnet" {
+        "https://zcashexplorer.app"
+    } else {
+        "https://testnet.zcashexplorer.app"
+    };
+
+    let mut tbody = Element::new("tbody");
+
+    for utxo in &utxos {
+        let txid_url = format!("{}/transactions/{}", explorer_base, utxo.txid);
+        let txid_short_start = &utxo.txid[..core::cmp::min(6, utxo.txid.len())];
+        let txid_short_end = if utxo.txid.len() > 10 {
+            &utxo.txid[utxo.txid.len() - 4..]
+        } else {
+            ""
+        };
+        let txid_display = format!("{}...{}", txid_short_start, txid_short_end);
+        let value_zec = format_zec(utxo.value);
+
+        let addr_display = match &utxo.address {
+            Some(addr) if addr.len() > 14 => {
+                let start = &addr[..8];
+                let end = &addr[addr.len() - 6..];
+                format!("{}...{}", start, end)
+            }
+            Some(addr) => addr.clone(),
+            None => "-".to_string(),
+        };
+
+        tbody = tbody.child("tr", |tr| {
+            tr.child("td", |td| {
+                td.class("mono").class("small").child("a", |a| {
+                    a.attr("href", &txid_url)
+                        .attr("target", "_blank")
+                        .attr("rel", "noopener noreferrer")
+                        .attr("title", &utxo.txid)
+                        .text(&txid_display)
+                })
+            })
+            .child("td", |td| td.text(format!("{}", utxo.output_index)))
+            .child("td", |td| {
+                td.class("text-end").text(&value_zec).text(" ZEC")
+            })
+            .child("td", |td| {
+                td.class("mono").class("small").text(&addr_display)
+            })
+        });
+    }
+
+    Element::new("div")
+        .child("div", |wrapper| {
+            wrapper.class("table-responsive").child("table", |table| {
+                table
+                    .class("table")
+                    .class("table-sm")
+                    .child("thead", |thead| {
+                        thead.child("tr", |tr| {
+                            tr.child("th", |th| th.text("TxID"))
+                                .child("th", |th| th.text("Index"))
+                                .child("th", |th| th.class("text-end").text("Value"))
+                                .child("th", |th| th.text("Address"))
+                        })
+                    })
+                    .raw(tbody.render())
+            })
+        })
+        .child("p", |p| {
+            p.class("small")
+                .class("text-muted")
+                .class("mb-0")
+                .text(format!("{} UTXO(s) available", utxos.len()))
+        })
+        .render()
+}
+
+/// Generate HTML for a broadcast result alert.
+///
+/// Creates a Bootstrap alert for displaying broadcast results.
+///
+/// # Arguments
+///
+/// * `message` - The message to display
+/// * `alert_type` - Bootstrap alert type ("success", "danger", "warning", "info")
+///
+/// # Returns
+///
+/// HTML string for the alert.
+#[wasm_bindgen]
+pub fn render_broadcast_result(message: &str, alert_type: &str) -> String {
+    Element::new("div")
+        .class("alert")
+        .class(format!("alert-{}", alert_type))
+        .text(message)
+        .render()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
